@@ -20,6 +20,8 @@ const ICON_DEFS = `
 <symbol id="ic-chevl" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"></path></g></symbol>
 <symbol id="ic-chevr" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"></path></g></symbol>
 <symbol id="ic-comment" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5a2 2 0 0 1-2 2H9l-4.5 3.5v-13a2 2 0 0 1 2-2h11.5a2 2 0 0 1 2 2z"></path><path d="M8.5 9.5h7M8.5 12.5h4"></path></g></symbol>
+<symbol id="ic-info" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"></circle><path d="M12 11v5"></path><path d="M12 7.7v.3"></path></g></symbol>
+<symbol id="ic-snow" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.5v19M3.75 7.25l16.5 9.5M20.25 7.25l-16.5 9.5"></path><path d="M12 2.5 9.7 4.8M12 2.5l2.3 2.3M12 21.5l-2.3-2.3M12 21.5l2.3-2.3M3.75 7.25l.85 3.15M3.75 7.25l3.15-.85M20.25 16.75l-.85-3.15M20.25 16.75l-3.15.85M20.25 7.25l-3.15-.85M20.25 7.25l-.85 3.15M3.75 16.75l3.15.85M3.75 16.75l.85-3.15"></path></g></symbol>
 `
 
 export function IconDefs() {

@@ -18,7 +18,7 @@ function syncLine(sync) {
   return { dot: '#34d399', text: `Clinic Cards · синхронізовано ${relTime(sync.updatedAt)}` }
 }
 
-export default function Header({ view, sync }) {
+export default function Header({ view, sync, onHelp }) {
   const { tabs, query, onQuery, toggleFeed, feedCount } = view
   const line = syncLine(sync)
 
@@ -114,6 +114,18 @@ export default function Header({ view, sync }) {
         <Icon id="ic-sync" size={18} style={sync.refreshing ? { animation: 'ccspin .9s linear infinite' } : undefined} />
       </button>
 
+      {/* info / guide */}
+      <button
+        className="cc-bell"
+        onClick={onHelp}
+        title="Як це працює"
+        style={css(
+          'flex:none;width:40px;height:40px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.1);border-radius:11px;color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer'
+        )}
+      >
+        <Icon id="ic-info" size={19} />
+      </button>
+
       {/* bell */}
       <button
         className="cc-bell"
@@ -134,12 +146,40 @@ export default function Header({ view, sync }) {
         )}
       </button>
 
-      {/* avatars */}
-      <div style={css('flex:none;display:flex;align-items:center')}>
-        <span style={css("width:34px;height:34px;border-radius:50%;background:#2563eb;color:#fff;display:flex;align-items:center;justify-content:center;font:600 12px 'Onest',sans-serif;border:2px solid #19354f")}>МЛ</span>
-        <span style={css("width:34px;height:34px;border-radius:50%;background:#7c3aed;color:#fff;display:flex;align-items:center;justify-content:center;font:600 12px 'Onest',sans-serif;border:2px solid #19354f;margin-left:-10px")}>ОК</span>
-        <span style={css("width:34px;height:34px;border-radius:50%;background:#0891b2;color:#fff;display:flex;align-items:center;justify-content:center;font:600 12px 'Onest',sans-serif;border:2px solid #19354f;margin-left:-10px")}>ДС</span>
-      </div>
+      {/* admin login / logout */}
+      {view.isAdmin ? (
+        <div style={css('flex:none;display:flex;align-items:center;gap:8px')}>
+          <span
+            style={css(
+              "display:inline-flex;align-items:center;gap:7px;height:40px;padding:0 13px;border-radius:11px;background:rgba(52,211,153,.15);border:1px solid rgba(52,211,153,.4);color:#d1fae5;font-family:'Onest',sans-serif;font-size:12.5px;font-weight:600;white-space:nowrap"
+            )}
+          >
+            <span style={css('width:7px;height:7px;border-radius:50%;background:#34d399;flex:none')} />
+            Адміністратор
+          </span>
+          <button
+            className="cc-bell"
+            onClick={view.logout}
+            title="Вийти"
+            style={css(
+              'flex:none;width:40px;height:40px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.1);border-radius:11px;color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer'
+            )}
+          >
+            <Icon id="ic-ext" size={18} />
+          </button>
+        </div>
+      ) : (
+        <button
+          className="cc-bell"
+          onClick={view.openLogin}
+          style={css(
+            "flex:none;display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 15px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.1);border-radius:11px;color:#fff;font-family:'Onest',sans-serif;font-size:12.5px;font-weight:600;cursor:pointer;white-space:nowrap"
+          )}
+        >
+          <Icon id="ic-user" size={17} />
+          Вхід адміністратора
+        </button>
+      )}
     </div>
   )
 }

@@ -97,11 +97,14 @@ export function relativeTime(iso, now = Date.now()) {
 
 function computeSla(stage, enteredAtIso, now = Date.now()) {
   const st = STAGE_BY_ID[stage]
-  if (!st || st.norm == null || st.terminal) return { sla: '—', slaState: 'ok' }
+  if (!st || st.norm == null || st.terminal) return { sla: '—', slaState: 'ok', slaPct: 0 }
   const elapsedMin = Math.max(0, (now - new Date(enteredAtIso).getTime()) / 60000)
   const ratio = elapsedMin / st.norm
   const slaState = ratio > 1 ? 'over' : ratio > 0.6 ? 'warn' : 'ok'
-  return { sla: formatDuration(elapsedMin), slaState }
+  // Real fill: elapsed vs the stage norm, clamped to 0..100 (min 3 so the bar
+  // is visible even for fresh cards). Drives the progress bar width.
+  const slaPct = Math.max(3, Math.round(Math.min(100, ratio * 100)))
+  return { sla: formatDuration(elapsedMin), slaState, slaPct }
 }
 
 // ─── live Clinic Cards → seeds ────────────────────────────────────────────────
@@ -209,6 +212,7 @@ export function buildLive(snapshot) {
       dueVisitNote: dueVisitByPatient.get(id)?.note || '',
       doctor,
       visit: formatVisit(p.next_visit_date, now),
+      visitAt: parseDate(p.next_visit_date)?.toISOString() || null,
       note,
       hot: isHot(p, now),
       synced: true,
@@ -260,22 +264,51 @@ export function assemble(seeds, rawNotifs, meta = {}) {
     if (now > windowEndMs) continue
 
     const hot = pos.hot != null ? !!pos.hot : seed.hot
+    // Frozen = manually put on hold: pauses "застряг"/followup nagging and gets
+    // an icy highlight. The SLA timer still shows, but the card stops screaming.
+    const frozen = !!pos.frozen
     const daysInStage = Math.max(0, (now - enteredMs) / DAY_MS)
-    const isStuck = ACTIVE_STAGE_IDS.has(stage) && daysInStage >= config.stuckDays
+
+    // Any stage that has a reaction norm switches to a visit-date basis when the
+    // patient has a scheduled visit: while waiting for the appointment the card
+    // is calm; once the visit time passes and they weren't advanced, we count
+    // days overdue. With NO visit date we fall back to the stage's reaction norm.
+    const visitMs = seed.visitAt ? Date.parse(seed.visitAt) : NaN
+    const hasNorm = STAGE_BY_ID[stage]?.norm != null
+    const visitBasis = hasNorm && Number.isFinite(visitMs)
+    const visitOverdue = visitBasis && now > visitMs
+
+    // Frozen and the visit-waiting case both suppress the generic "застряг" timer.
+    const isStuck = !frozen && !visitBasis && ACTIVE_STAGE_IDS.has(stage) && daysInStage >= config.stuckDays
 
     // "Visited but not advanced": a visit's time passed AFTER the patient entered
     // this stage, they're still in an active stage, and the reminder wasn't
     // dismissed for that (or a newer) visit.
     const followupMs = seed.dueVisitAt ? Date.parse(seed.dueVisitAt) : 0
     const dismissedMs = pos.reminder_dismissed_at ? Date.parse(pos.reminder_dismissed_at) : 0
-    const needsFollowup = !!followupMs && ACTIVE_STAGE_IDS.has(stage) && followupMs > enteredMs && followupMs > dismissedMs
+    const needsFollowup = !frozen && !!followupMs && ACTIVE_STAGE_IDS.has(stage) && followupMs > enteredMs && followupMs > dismissedMs
 
-    let sla, slaState
-    if (seed.slaOverride && !movedByUs) {
+    let sla, slaState, slaPct
+    if (visitBasis) {
+      if (visitOverdue) {
+        // Days (or hours) overdue since the scheduled visit.
+        sla = formatDuration((now - visitMs) / 60000)
+        slaState = 'over'
+        slaPct = 100
+      } else {
+        // Time left until the appointment; bar fills as the visit approaches.
+        sla = formatDuration((visitMs - now) / 60000)
+        slaState = 'ok'
+        const total = visitMs - enteredMs
+        slaPct = total > 0 ? Math.max(3, Math.min(100, Math.round((100 * (now - enteredMs)) / total))) : 8
+      }
+    } else if (seed.slaOverride && !movedByUs) {
       ;({ sla, slaState } = seed.slaOverride)
+      slaPct = seed.slaOverride.slaPct
     } else {
-      ;({ sla, slaState } = computeSla(stage, pos.entered_at, now))
+      ;({ sla, slaState, slaPct } = computeSla(stage, pos.entered_at, now))
     }
+    const overdueDays = visitOverdue ? Math.floor((now - visitMs) / DAY_MS) : 0
 
     admins[seed.admin.key] = { initials: seed.admin.initials, name: seed.admin.name, color: seed.admin.color }
 
@@ -284,6 +317,7 @@ export function assemble(seeds, rawNotifs, meta = {}) {
       stage,
       name: seed.name,
       phone: seed.phone,
+      ccUrl: config.patientUrlTemplate.replace('{id}', encodeURIComponent(seed.id)),
       service: seed.service,
       comment: seed.comment || '',
       doctor: seed.doctor,
@@ -291,8 +325,14 @@ export function assemble(seeds, rawNotifs, meta = {}) {
       note: seed.note,
       sla,
       slaState,
+      slaPct, // real elapsed/norm fill (0..100); null when no norm
+      slaByVisit: visitBasis, // SLA driven by the visit date, not a reaction norm
+      visitOverdue, // KT visit time passed and patient not advanced
+      overdueDays, // whole days overdue since the visit (0 if <1 day)
+      movedByUs, // current stage was set on the board (manual), not from CRM
       admin: seed.admin.key,
       hot,
+      frozen,
       synced: seed.synced,
       daysInStage: Math.floor(daysInStage),
       isStuck,

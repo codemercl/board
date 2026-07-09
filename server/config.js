@@ -1,5 +1,6 @@
 import 'dotenv/config'
 import path from 'node:path'
+import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -35,7 +36,19 @@ export const config = {
   // Range of visits/appointments to pull for the "Коментар" (visit note) field.
   visitsBackDays: Number(process.env.VISITS_BACK_DAYS) || 60,
   visitsFwdDays: Number(process.env.VISITS_FWD_DAYS) || 120,
+  // Admin login (gates manual card moves). Change ADMIN_PASSWORD in prod!
+  adminUser: process.env.ADMIN_USER || 'admin',
+  adminPassword: process.env.ADMIN_PASSWORD || 'admin',
+  // Link to the patient's profile in the Clinic Cards web app. `{id}` is the
+  // Clinic Cards patient_id. Default: same host as the API, sans `/api`.
+  patientUrlTemplate:
+    process.env.CLINIC_CARDS_PATIENT_URL ||
+    `${(process.env.CLINIC_CARDS_BASE_URL || 'https://cliniccards.com/api').replace(/\/+$/, '').replace(/\/api$/, '')}/patients/{id}`,
 }
+
+// Bearer token issued on login and checked on mutations. Derived from the
+// credentials so it needs no server-side session store (works on serverless).
+export const adminToken = crypto.createHash('sha256').update(`${config.adminUser}:${config.adminPassword}`).digest('hex')
 
 // Is a real Clinic Cards key configured? If not, we run on mock data.
 export const isLive = !!config.apiKey
@@ -44,10 +57,10 @@ export const isLive = !!config.apiKey
 // `norm` is the reaction SLA for the stage in minutes (null = no SLA / terminal).
 // `first` marks the column new Clinic Cards patients land in.
 export const STAGES = [
-  { id: 'consult_scheduled', norm: 24 * 60,  first: true },
-  { id: 'consult_done',      norm: 4 * 60 },
-  { id: 'kt',                norm: 24 * 60 },
-  { id: 'plan',              norm: 24 * 60 },
+  { id: 'consult_scheduled', norm: 48 * 60,  first: true },
+  { id: 'consult_done',      norm: 48 * 60 },
+  { id: 'kt',                norm: 48 * 60 },
+  { id: 'plan',              norm: 48 * 60 },
   { id: 'treatment',         norm: null,     terminal: true },
   { id: 'done',              norm: null,     terminal: true },
   { id: 'lost',              norm: null,     terminal: true },

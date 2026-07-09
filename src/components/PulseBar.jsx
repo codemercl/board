@@ -3,10 +3,9 @@ import { Icon } from '../icons.jsx'
 
 function Conversion({ conversion }) {
   const c = conversion || {}
-  const hasData = c.onTimePct != null || c.apptToShowCount > 0
   const win = c.windowDays || 30
 
-  if (!hasData) {
+  if (!(c.apptToShowCount > 0)) {
     return (
       <div style={css('display:flex;align-items:center;gap:7px;white-space:nowrap')}>
         <span style={css('width:26px;height:26px;border-radius:8px;background:#eef4ff;color:#2563eb;display:flex;align-items:center;justify-content:center;flex:none')}>
@@ -22,11 +21,6 @@ function Conversion({ conversion }) {
       <span style={css('width:26px;height:26px;border-radius:8px;background:#eafaf0;color:#16a34a;display:flex;align-items:center;justify-content:center;flex:none')}>
         <Icon id="ic-trend" size={14} />
       </span>
-      <div style={css('display:flex;align-items:baseline;gap:6px')}>
-        <span style={css("font:700 15px 'Onest',sans-serif;color:#16a34a")}>{c.onTimePct != null ? c.onTimePct + '%' : '—'}</span>
-        <span style={css('font-size:11.5px;color:#7c8aa0')}>вчасно по етапах · {win} дн</span>
-      </div>
-      <span style={css('width:4px;height:4px;border-radius:50%;background:#cbd5e1;flex:none')} />
       <div style={css('display:flex;align-items:baseline;gap:6px')}>
         <span style={css('font-size:11.5px;color:#7c8aa0')}>Консультація → Прийшов:</span>
         <span style={css("font:700 13px 'Onest',sans-serif;color:#13243b")}>{c.apptToShowCount}</span>

@@ -3,9 +3,9 @@ import path from 'node:path'
 import express from 'express'
 import cors from 'cors'
 import compression from 'compression'
-import { config, isLive, STAGE_IDS } from './config.js'
+import { config, isLive, STAGE_IDS, adminToken } from './config.js'
 import { getBoard } from './store.js'
-import { setStage, setHot, dismissFollowup } from './db.js'
+import { setStage, setHot, setFrozen, dismissFollowup } from './db.js'
 
 // The Express app, without listen(). server/index.js listens (local/Node host);
 // api/index.js exports it for Vercel serverless.
@@ -18,6 +18,19 @@ const wrap = (fn) => (req, res) => fn(req, res).catch((e) => {
   console.error(e)
   res.status(500).json({ result: 'fail', error: e.message })
 })
+
+// Admin gate for mutations (manual card moves). Login returns a bearer token
+// derived from the credentials; mutations must present it.
+app.post('/api/login', (req, res) => {
+  const { user, password } = req.body || {}
+  if (user === config.adminUser && password === config.adminPassword) {
+    return res.json({ result: 'success', data: { token: adminToken } })
+  }
+  res.status(401).json({ result: 'fail', error: 'Невірний логін або пароль' })
+})
+
+// Admin token still gates free-form drag-and-drop on the client. The guided
+// manual actions below (single-step move, freeze, dismiss) are open to all staff.
 
 // Board state: mapped Clinic Cards patients merged with our saved positions.
 // ?refresh=1 forces a fresh Clinic Cards pull (bypasses the cache).
@@ -49,6 +62,14 @@ app.post('/api/patients/:id/stage', wrap(async (req, res) => {
 app.post('/api/patients/:id/hot', wrap(async (req, res) => {
   const { id } = req.params
   await setHot(id, !!(req.body && req.body.hot))
+  const board = await getBoard(false)
+  res.json({ result: 'success', data: board })
+}))
+
+// Freeze / unfreeze a patient (put on hold — pauses attention flags).
+app.post('/api/patients/:id/frozen', wrap(async (req, res) => {
+  const { id } = req.params
+  await setFrozen(id, !!(req.body && req.body.frozen))
   const board = await getBoard(false)
   res.json({ result: 'success', data: board })
 }))

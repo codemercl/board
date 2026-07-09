@@ -1,8 +1,21 @@
+import { useState } from 'react'
 import { css } from '../css.js'
 import { Icon } from '../icons.jsx'
 
 export default function PatientPanel({ view }) {
   const { sel, closePanel } = view
+  const [copied, setCopied] = useState(false)
+
+  const copyPhone = async () => {
+    if (!sel.phone) return
+    try {
+      await navigator.clipboard.writeText(sel.phone)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1600)
+    } catch {
+      /* clipboard unavailable */
+    }
+  }
 
   return (
     <div
@@ -54,7 +67,12 @@ export default function PatientPanel({ view }) {
             <span style={{ ...css('width:7px;height:7px;border-radius:50%'), background: sel.stageColor }} />
             {sel.stageTitle}
           </span>
-          {sel.needsFollowup ? (
+          {sel.frozen ? (
+            <span style={css('display:inline-flex;align-items:center;gap:4px;padding:6px 10px;border-radius:9px;background:#dcf1f8;color:#0e7490;font-size:10.5px;font-weight:700;letter-spacing:.03em')}>
+              <Icon id="ic-snow" size={11} />
+              ЗАМОРОЖЕНА
+            </span>
+          ) : sel.needsFollowup ? (
             <span style={css('display:inline-flex;align-items:center;gap:4px;padding:6px 10px;border-radius:9px;background:#e7f0fe;color:#1e40af;font-size:10.5px;font-weight:700;letter-spacing:.03em')}>
               <Icon id="ic-check" size={11} />
               Був у клініці{sel.followupVisitLabel ? ` · ${sel.followupVisitLabel}` : ''}
@@ -67,29 +85,50 @@ export default function PatientPanel({ view }) {
           ) : sel.isOver ? (
             <span style={css('display:inline-flex;align-items:center;gap:4px;padding:6px 10px;border-radius:9px;background:#ffe1e7;color:#be123c;font-size:10.5px;font-weight:700;letter-spacing:.03em')}>
               <Icon id="ic-alert" size={11} />
-              ПРОСТРОЧЕНО
+              {sel.overBadge}
             </span>
           ) : null}
         </div>
 
-        {/* action buttons */}
+        {/* action buttons — this board is read-only over Clinic Cards, so the
+            actions are copy-to-clipboard and a deep link to the CC profile. */}
         <div style={css('display:flex;gap:8px')}>
-          <button className="cc-action" style={css("flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;padding:10px 6px;border:1px solid #e2e9f2;border-radius:12px;background:#fbfcfe;cursor:pointer;color:#2c3e58;font-family:'Onest',sans-serif")}>
-            <Icon id="ic-phone" size={17} style={css('color:#2563eb')} />
-            <span style={css('font-size:11px;font-weight:600')}>Зателефонувати</span>
+          <button
+            className="cc-action"
+            onClick={copyPhone}
+            disabled={!sel.phone}
+            style={css("flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;padding:10px 6px;border:1px solid #e2e9f2;border-radius:12px;background:#fbfcfe;cursor:pointer;color:#2c3e58;font-family:'Onest',sans-serif")}
+          >
+            <Icon id={copied ? 'ic-check' : 'ic-phone'} size={17} style={css(copied ? 'color:#16a34a' : 'color:#2563eb')} />
+            <span style={css('font-size:11px;font-weight:600')}>{copied ? 'Скопійовано' : 'Копіювати телефон'}</span>
           </button>
-          <button className="cc-action" style={css("flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;padding:10px 6px;border:1px solid #e2e9f2;border-radius:12px;background:#fbfcfe;cursor:pointer;color:#2c3e58;font-family:'Onest',sans-serif")}>
-            <Icon id="ic-bell" size={17} style={css('color:#d97706')} />
-            <span style={css('font-size:11px;font-weight:600')}>Нагадати</span>
-          </button>
-          <button className="cc-action" style={css("flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;padding:10px 6px;border:1px solid #e2e9f2;border-radius:12px;background:#fbfcfe;cursor:pointer;color:#2c3e58;font-family:'Onest',sans-serif")}>
+          <a
+            className="cc-action"
+            href={sel.ccUrl || '#'}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={css("flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;padding:10px 6px;border:1px solid #e2e9f2;border-radius:12px;background:#fbfcfe;cursor:pointer;color:#2c3e58;font-family:'Onest',sans-serif;text-decoration:none")}
+          >
             <Icon id="ic-ext" size={17} style={css('color:#7c3aed')} />
-            <span style={css('font-size:11px;font-weight:600')}>Clinic Cards</span>
-          </button>
+            <span style={css('font-size:11px;font-weight:600')}>Відкрити в Clinic Cards</span>
+          </a>
         </div>
         <div style={css('font-size:10.5px;color:#9aa6b6;text-align:center;margin-top:-8px')}>
-          Медкартка, фінанси та записи — у CRM. Тут лише статус.
+          Дзвінки, нагадування та записи — у Clinic Cards. Тут лише статус на воронці.
         </div>
+
+        <button
+          className="cc-action"
+          onClick={sel.toggleFrozen}
+          style={css(
+            sel.frozen
+              ? "display:flex;align-items:center;justify-content:center;gap:8px;padding:11px;border:1px solid #e2e9f2;border-radius:12px;background:#fbfcfe;color:#56667c;font-family:'Onest',sans-serif;font-size:12.5px;font-weight:600;cursor:pointer"
+              : "display:flex;align-items:center;justify-content:center;gap:8px;padding:11px;border:1px solid #a4d6e6;border-radius:12px;background:#ecf8fb;color:#0e7490;font-family:'Onest',sans-serif;font-size:12.5px;font-weight:600;cursor:pointer"
+          )}
+        >
+          <Icon id="ic-snow" size={15} />
+          {sel.frozen ? 'Розморозити' : 'Заморозити (на паузу)'}
+        </button>
 
         {sel.hasNext && (
           <button
@@ -106,7 +145,7 @@ export default function PatientPanel({ view }) {
         <div style={{ ...css('border:1px solid #e8edf4;border-radius:13px;padding:13px 14px;display:flex;flex-direction:column;gap:9px'), background: sel.slaBlockBg }}>
           <div style={css('display:flex;align-items:center;gap:8px')}>
             <Icon id="ic-clock" size={15} style={css('color:#7c8aa0')} />
-            <span style={css('font-size:12px;font-weight:600;color:#3c4d66;flex:1')}>На етапі без дії</span>
+            <span style={css('font-size:12px;font-weight:600;color:#3c4d66;flex:1')}>{sel.slaLabel}</span>
             <span style={{ ...css("font:700 13px 'JetBrains Mono',monospace"), color: sel.slaTextColor }}>{sel.sla}</span>
           </div>
           <div style={css('height:5px;border-radius:99px;background:rgba(15,27,45,.07);overflow:hidden')}>
@@ -118,12 +157,20 @@ export default function PatientPanel({ view }) {
         {/* info rows */}
         <div style={css('display:flex;flex-direction:column;gap:9px')}>
           {sel.infoRows.map((r) => (
-            <div key={r.label} style={css('display:flex;align-items:center;gap:10px')}>
+            <div key={r.label} style={css(r.wrap ? 'display:flex;align-items:flex-start;gap:10px' : 'display:flex;align-items:center;gap:10px')}>
               <span style={css('width:28px;height:28px;border-radius:9px;background:#f4f6fa;color:#7c8aa0;display:flex;align-items:center;justify-content:center;flex:none')}>
                 <Icon id={r.iconHref} size={14} />
               </span>
-              <span style={css('font-size:11.5px;color:#8a97a8;width:88px;flex:none')}>{r.label}</span>
-              <span style={css('font-size:12.5px;font-weight:600;color:#22334c;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{r.value}</span>
+              <span style={css(r.wrap ? 'font-size:11.5px;color:#8a97a8;width:88px;flex:none;padding-top:5px' : 'font-size:11.5px;color:#8a97a8;width:88px;flex:none')}>{r.label}</span>
+              <span
+                style={css(
+                  r.wrap
+                    ? 'font-size:12.5px;font-weight:600;color:#22334c;flex:1;min-width:0;white-space:pre-wrap;word-break:break-word;line-height:1.45'
+                    : 'font-size:12.5px;font-weight:600;color:#22334c;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'
+                )}
+              >
+                {r.value}
+              </span>
             </div>
           ))}
         </div>

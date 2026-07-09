@@ -19,6 +19,8 @@ const attnStyle = {
 const stuckStyle = { bg: '#fff8ef', border: '#e7c893', shadow: '0 0 0 1.6px rgba(217,119,6,.24),0 16px 32px -16px rgba(217,119,6,.48)' }
 // Visited the clinic but not advanced — blue highlight, top priority (actionable).
 const followupStyle = { bg: '#eef4ff', border: '#9fc0f0', shadow: '0 0 0 1.6px rgba(37,99,235,.24),0 16px 32px -16px rgba(37,99,235,.45)' }
+// Frozen — manually put on hold. Icy cyan highlight; overrides attention glows.
+const frozenStyle = { bg: '#ecf8fb', border: '#a4d6e6', shadow: '0 0 0 1.6px rgba(8,145,178,.20),0 16px 32px -18px rgba(8,145,178,.4)' }
 
 function hash(str) {
   let h = 0
@@ -49,26 +51,37 @@ export function computeView(state, props, setState, ctx) {
     const at = attnStyle[p.slaState]
     const initials = initialsOf(p.name)
     const h = hash(p.name)
-    const pct = p.slaState === 'over' ? 100 : p.slaState === 'warn' ? 62 + (h % 23) : p.sla === 'щойно' ? 4 : 12 + (h % 26)
+    // Real fill from the backend (elapsed vs stage norm). Fall back to the old
+    // name-hash estimate only if the backend didn't send slaPct (e.g. old cache).
+    const pct = typeof p.slaPct === 'number'
+      ? p.slaPct
+      : (p.slaState === 'over' ? 100 : p.slaState === 'warn' ? 62 + (h % 23) : p.sla === 'щойно' ? 4 : 12 + (h % 26))
     const isSel = state.selected === p.id
-    const isStuck = !!p.isStuck
-    const needsFollowup = !!p.needsFollowup
+    const frozen = !!p.frozen
+    const isStuck = !frozen && !!p.isStuck
+    const needsFollowup = !frozen && !!p.needsFollowup
     // Between which stages the patient is stuck (current → next in the chain).
     const idx = CHAIN.indexOf(p.stage)
     const nextId = idx > -1 && idx < CHAIN.length - 1 ? CHAIN[idx + 1] : null
     const nextTitle = nextId ? S[nextId].title : ''
-    const glowStyle = needsFollowup ? followupStyle : isStuck ? stuckStyle : at
+    const glowStyle = frozen ? frozenStyle : needsFollowup ? followupStyle : isStuck ? stuckStyle : at
     return Object.assign({}, p, {
       adminInitials: a.initials, adminName: a.name, adminColor: a.color,
       stageColor: st.color, stageTitle: st.title, stageTint: st.tint, stageNorm: st.norm,
-      slaColor: ss.c, slaBg: ss.b, slaBorder: ss.bd, slaBarColor: ss.bar,
+      slaColor: ss.c, slaBg: ss.b, slaBorder: ss.bd,
+      // Visit-based "Орієнтир" bar is blue; norm-based bar keeps its state colour.
+      slaBarColor: p.slaByVisit ? '#2563eb' : ss.bar,
       slaPct: pct, slaPctW: pct + '%',
       initials,
       hasSla: p.sla !== '—' && p.stage !== 'done' && p.stage !== 'lost',
       showDoctor: !!p.doctor && !compact, showVisit: !!p.visit && !compact, showNote: !!p.note && !compact,
       isOver: p.slaState === 'over', isWarn: p.slaState === 'warn',
+      // KT overdue-by-visit shows the day count in the "ПРОСТРОЧЕНО" badge.
+      overBadge: p.slaByVisit && p.overdueDays > 0 ? `ПРОСТРОЧЕНО · ${p.overdueDays} дн` : 'ПРОСТРОЧЕНО',
       isStuck, nextTitle, stuckBetween: nextTitle ? `${st.title} → ${nextTitle}` : st.title,
       needsFollowup,
+      frozen,
+      toggleFrozen: () => { ctx.toggleFrozen && ctx.toggleFrozen(p.id, !frozen) },
       dismissFollowup: () => { ctx.dismissFollowup && ctx.dismissFollowup(p.id, p.followupVisitAt) },
       isSelected: isSel,
       cardBg: glowStyle && glow ? glowStyle.bg : '#ffffff',
@@ -85,7 +98,7 @@ export function computeView(state, props, setState, ctx) {
   const qd = q.replace(/[^0-9]/g, '')
   const visible = enriched.filter((p) => {
     if (tab === 'hot' && !p.hot) return false
-    if (tab === 'attention' && !(p.isStuck || p.needsFollowup)) return false
+    if (tab === 'attention' && !(p.isStuck || p.needsFollowup || p.visitOverdue)) return false
     if (state.curatorFilter && p.admin !== state.curatorFilter) return false
     if (q) {
       const nameHit = p.name.toLowerCase().indexOf(q) > -1
@@ -95,13 +108,17 @@ export function computeView(state, props, setState, ctx) {
     return true
   })
 
-  // Sort: visited-not-advanced first (actionable), then stuck, SLA, hot, rest.
+  // Sort: frozen cards always sink to the bottom; above them, visited-not-
+  // advanced first (actionable), then stuck, SLA, hot, rest.
   const rank = (p) => (p.needsFollowup ? 0 : p.isStuck ? 1 : p.isOver ? 2 : p.isWarn ? 3 : p.hot ? 4 : 5)
   const collapsed = state.collapsed
 
   const columns = STAGES.map((s) => {
-    const ps = visible.filter((p) => p.stage === s.id).slice().sort((a, b) => rank(a) - rank(b))
-    const stuck = ps.filter((p) => p.isStuck || p.needsFollowup).length
+    const ps = visible
+      .filter((p) => p.stage === s.id)
+      .slice()
+      .sort((a, b) => (a.frozen === b.frozen ? rank(a) - rank(b) : a.frozen ? 1 : -1))
+    const stuck = ps.filter((p) => p.isStuck || p.needsFollowup || p.visitOverdue).length
     const isCol = !!collapsed[s.id]
     return Object.assign({}, s, {
       patients: ps, count: ps.length,
@@ -120,7 +137,7 @@ export function computeView(state, props, setState, ctx) {
   const active = enriched.filter((p) => p.stage !== 'done' && p.stage !== 'lost')
   const today = enriched.filter((p) => (p.visit || '').indexOf('Сьогодні') > -1).length
   const hotCount = enriched.filter((p) => p.hot).length
-  const stuckCount = enriched.filter((p) => p.isStuck || p.needsFollowup).length
+  const stuckCount = enriched.filter((p) => p.isStuck || p.needsFollowup || p.visitOverdue).length
 
   const stats = [
     { iconHref: 'ic-users',    value: String(active.length), label: 'в роботі',       color: '#2563eb', bg: '#eef4ff' },
@@ -196,12 +213,14 @@ export function computeView(state, props, setState, ctx) {
         showLine: true,
       })
     })
+    // "Manual" if this stage was set on the board (moved by us), else "з CRM".
+    const manual = justMoved || found.movedByUs
     timeline.push({
       title: found.stageTitle, isDone: false, isCurrent: true, isFuture: false,
       dotBg: found.stageTint, dotColor: found.stageColor, dotAnim: 'ccdot 2.2s infinite', titleColor: '#101d31',
       time: justMoved ? 'переміщено щойно' : 'на етапі ' + (found.sla === '—' ? 'зараз' : found.sla),
-      mark: justMoved ? 'вручну' : (found.synced ? 'з CRM' : ''), hasMark: justMoved || found.synced,
-      markBg: justMoved ? '#f1f4f8' : '#eef4ff', markColor: justMoved ? '#6b7a8d' : '#2563eb',
+      mark: manual ? 'вручну' : (found.synced ? 'з CRM' : ''), hasMark: manual || found.synced,
+      markBg: manual ? '#f1f4f8' : '#eef4ff', markColor: manual ? '#6b7a8d' : '#2563eb',
       showLine: false,
     })
     let nextId = null
@@ -217,7 +236,7 @@ export function computeView(state, props, setState, ctx) {
     }
     const infoRows = [
       found.comment
-        ? { iconHref: 'ic-comment', label: 'Коментар', value: found.comment }
+        ? { iconHref: 'ic-comment', label: 'Коментар', value: found.comment, wrap: true }
         : { iconHref: 'ic-users',   label: 'Послуга',  value: found.service },
       { iconHref: 'ic-user',     label: 'Лікар',   value: found.doctor },
       { iconHref: 'ic-calendar', label: 'Візит',   value: found.visit },
@@ -228,7 +247,17 @@ export function computeView(state, props, setState, ctx) {
       infoRows,
       hasNext: !!nextId,
       nextLabel: isBranch ? 'Повернути в роботу' : 'Перемістити: ' + (nextId ? S[nextId].title : ''),
-      slaNorm: found.stageNorm ? 'Норматив реакції на етапі: ' + found.stageNorm : 'Етап без нормативу реакції',
+      // KT with a visit date: no reaction norm — the SLA is the visit itself.
+      slaLabel: found.slaByVisit
+        ? (found.visitOverdue ? 'Прострочення візиту' : 'До візиту')
+        : 'На етапі без дії',
+      // Frozen with an Орієнтир (visit date) → still show it. Frozen without one
+      // → drop the reaction norm entirely (it's paused while on hold).
+      slaNorm: found.slaByVisit
+        ? (found.visitOverdue ? 'Орієнтир — призначена дата візиту (прострочено)' : 'Орієнтир — призначена дата візиту')
+        : found.frozen
+          ? 'Норматив на паузі — заморожено'
+          : (found.stageNorm ? 'Норматив реакції на етапі: ' + found.stageNorm : 'Етап без нормативу реакції'),
       slaBlockBg: found.isStuck ? '#fff8ef' : found.isOver ? '#fff8f9' : found.isWarn ? '#fffdf6' : '#fbfcfe',
       slaTextColor: found.isOver ? '#be123c' : found.isWarn ? '#b45309' : '#22334c',
       moveNext: () => { if (nextId) moveStage(found.id, nextId) },
@@ -239,6 +268,11 @@ export function computeView(state, props, setState, ctx) {
 
   return {
     columns, stats, tabs,
+    // Admin auth + drag-and-drop move (arbitrary column). Only admins can move.
+    isAdmin: !!ctx.isAdmin,
+    openLogin: ctx.openLogin || (() => {}),
+    logout: ctx.logout || (() => {}),
+    moveTo: (id, stage) => moveStage(id, stage),
     workloadAll,
     workloadOpen: !!state.workloadOpen,
     toggleWorkload: () => setState({ workloadOpen: !state.workloadOpen }),

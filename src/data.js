@@ -15,10 +15,10 @@ export const POLL_MS = 5 * 60 * 1000
 export const CHAIN = ['consult_scheduled', 'consult_done', 'kt', 'plan', 'treatment', 'done']
 
 export const STAGES = [
-  { id: 'consult_scheduled', title: 'Консультація призначена', color: '#7c3aed', tint: '#f4f0ff', norm: '24 год' },
-  { id: 'consult_done',      title: 'Прийшов на консультацію', color: '#0891b2', tint: '#e8faff', norm: '4 год' },
-  { id: 'kt',                title: 'Направлений на КТ',       color: '#4f46e5', tint: '#eef0ff', norm: '24 год' },
-  { id: 'plan',              title: 'План лікування складено', color: '#0d9488', tint: '#e7fbf5', norm: '24 год' },
+  { id: 'consult_scheduled', title: 'Консультація призначена', color: '#7c3aed', tint: '#f4f0ff', norm: '48 год' },
+  { id: 'consult_done',      title: 'Прийшов на консультацію', color: '#0891b2', tint: '#e8faff', norm: '48 год' },
+  { id: 'kt',                title: 'Направлений на КТ',       color: '#4f46e5', tint: '#eef0ff', norm: '48 год' },
+  { id: 'plan',              title: 'План лікування складено', color: '#0d9488', tint: '#e7fbf5', norm: '48 год' },
   { id: 'treatment',         title: 'Лікування в процесі',     color: '#d97706', tint: '#fff5e6', norm: '' },
   { id: 'done',              title: 'Лікування завершено',     color: '#16a34a', tint: '#eafaf0', norm: '' },
   { id: 'lost',              title: 'Втрачений / Відмова',     color: '#e11d48', tint: '#fff0f3', norm: '' },
