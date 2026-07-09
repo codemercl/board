@@ -20,10 +20,9 @@ export const config = {
   plansSince: process.env.CLINIC_CARDS_PLANS_SINCE || '2015-01-01',
   port: Number(process.env.PORT) || 8787,
   cacheTtlMs: (Number(process.env.CC_CACHE_TTL_SECONDS) || 180) * 1000,
-  // libSQL / Turso. Locally defaults to a file DB; in production set
-  // TURSO_DATABASE_URL (libsql://…) + TURSO_AUTH_TOKEN.
-  dbUrl: process.env.TURSO_DATABASE_URL || `file:${path.resolve(root, process.env.DB_PATH || './data/board.db')}`,
-  dbAuthToken: process.env.TURSO_AUTH_TOKEN || undefined,
+  // Supabase / Postgres connection string (pooled for serverless). Empty →
+  // in-memory store (dev/demo, no persistence).
+  dbUrl: process.env.DATABASE_URL || '',
   // Show a patient for this many days after заявка creation; each stage advance
   // extends the window by another WINDOW_DAYS from the advance date.
   windowDays: Number(process.env.WINDOW_DAYS) || 30,

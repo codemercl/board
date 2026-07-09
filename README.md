@@ -3,19 +3,23 @@
 Канбан-борд потока пациентов стоматологической клиники. UI реализован 1:1 по
 дизайну из Claude Design; данные о пациентах тянутся **из Clinic Cards API**
 (только чтение), а позиции карточек на борде хранятся в **своей БД**
-(libSQL/Turso — SQLite-совместимая, локально файл, в проде serverless).
+(Supabase / Postgres; локально можно без БД — in-memory).
 
 ```
 Браузер ──/api──► Express (server/) ──Token──► Clinic Cards API   (read-only, GET)
                        │
-                       └── libSQL/Turso   ← позиции карточек + кэш выгрузки CC
+                       └── Supabase/Postgres   ← позиции карточек + кэш выгрузки CC
 ```
 
 Разворачивается двумя способами:
 - **Один Node-хост** (локально, Railway, Render): `npm run build && npm start` —
   Express отдаёт `dist/` и API с одного порта.
 - **Vercel** (serverless): фронт — статика на CDN, бэкенд — функция `api/index.js`,
-  БД — Turso. См. [«Деплой на Vercel»](#деплой-на-vercel).
+  БД — Supabase. См. [«Деплой на Vercel»](#деплой-на-vercel).
+
+> Без `DATABASE_URL` приложение работает на **in-memory** хранилище (удобно для
+> локальной разработки/демо), но позиции карточек не сохраняются между
+> перезапусками. Для реальной работы задайте Supabase-строку подключения.
 
 ## Быстрый старт
 
@@ -40,47 +44,45 @@ npm run dev                  # backend :8787 + frontend :5173 одновреме
 | `CLINIC_CARDS_CLOSED_STATUSES` | Названия статусов CC = «закрыт/архив» — такие пациенты скрыты. Для этой клиники: `Выполненный,Отказался`. |
 | `CLINIC_CARDS_PLANS_SINCE` | С какой даты искать планы лечения для поля «Послуга». |
 | `PORT` | Порт бэкенда (8787). |
-| `CC_CACHE_TTL_SECONDS` | TTL кэша выгрузки из CC (лимит API — 60 запросов/мин). |
-| `TURSO_DATABASE_URL` | libSQL/Turso URL. **Пусто → локальный файл** `./data/board.db`. Для прода — `libsql://…`. |
-| `TURSO_AUTH_TOKEN` | Токен Turso (для прод-БД). |
-| `DB_PATH` | Путь к локальному файлу БД (когда `TURSO_DATABASE_URL` пуст). |
-| `WINDOW_DAYS` | Сколько дней показывать пациента после создания заявки; переход на этап продлевает окно (по умолч. 30). |
-| `STUCK_DAYS` | Без перехода столько дней → «Потребують уваги» (3). |
-| `HOT_VISIT_DAYS` | «Гарячі»: ближайший визит в пределах N дней (1). |
-| `CONVERSION_WINDOW_DAYS` | Окно расчёта конверсии (30). |
+| `DATABASE_URL` | Supabase/Postgres pooled connection string. **Пусто → in-memory** (без сохранения). |
 
-> Ключ живёт только на бэкенде и никогда не попадает в браузер. `.env` и
-> `data/` — в `.gitignore`.
+Всё остальное (`CC_CACHE_TTL_SECONDS`, `WINDOW_DAYS`, `STUCK_DAYS`,
+`HOT_VISIT_DAYS`, `CONVERSION_WINDOW_DAYS`, `VISITS_BACK_DAYS`/`VISITS_FWD_DAYS`,
+`CLINIC_CARDS_BASE_URL`, `CLINIC_CARDS_PLANS_SINCE`, `PORT`) — необязательные
+override с разумными значениями по умолчанию; примеры закомментированы в
+`.env.example`.
+
+> Ключ живёт только на бэкенде и никогда не попадает в браузер. `.env` — в
+> `.gitignore`.
 
 ## Деплой на Vercel
 
-Vercel — serverless, поэтому файловой SQLite и фонового процесса там нет. Данные
-хранятся в **Turso** (libSQL, SQLite-совместимая), а Express обёрнут в функцию
-`api/index.js`. Clinic Cards дёргается не чаще раза в `CC_CACHE_TTL_SECONDS`
-(выгрузка кэшируется в Turso и переживает холодные старты).
+Vercel — serverless, поэтому данные хранятся в **Supabase (Postgres)**, а Express
+обёрнут в функцию `api/index.js`. Clinic Cards дёргается не чаще раза в
+`CC_CACHE_TTL_SECONDS` (выгрузка кэшируется в таблице `cache` и переживает
+холодные старты — это держит нас под лимитом 60 запросов/мин).
 
-1. **Turso БД:**
-   ```bash
-   curl -sSfL https://get.tur.so/install.sh | bash   # или brew install tursodatabase/tap/turso
-   turso auth login
-   turso db create board
-   turso db show board --url            # → TURSO_DATABASE_URL
-   turso db tokens create board         # → TURSO_AUTH_TOKEN
+1. **Supabase БД:** создайте проект на [supabase.com](https://supabase.com).
+   Затем **Project Settings → Database → Connection string → Pooler**
+   (Transaction mode, порт `6543`) — это и есть `DATABASE_URL`. Пример:
    ```
+   postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres
+   ```
+   Таблицы (`positions`, `transitions`, `cache`) создаются автоматически при
+   первом запросе — SQL выполнять вручную не нужно.
 2. **Импорт в Vercel:** New Project → выберите этот GitHub-репозиторий. Framework
    Preset — *Other* (сборка и роутинг заданы в `vercel.json`).
 3. **Environment Variables** (Project → Settings → Environment Variables):
    - `CLINIC_CARDS_API_KEY` — ваш ключ Clinic Cards
-   - `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` — из шага 1
-   - при желании: `CLINIC_CARDS_CLOSED_STATUSES`, `CC_CACHE_TTL_SECONDS`,
-     `WINDOW_DAYS`, `STUCK_DAYS`, `HOT_VISIT_DAYS`, `VISITS_BACK_DAYS`/`VISITS_FWD_DAYS`
+   - `DATABASE_URL` — pooled-строка из шага 1
+   - `CLINIC_CARDS_CLOSED_STATUSES=Выполненный,Отказался`
+   - при желании — прочие override из `.env.example`.
 4. **Deploy.** Vercel соберёт фронт (`npm run build` → `dist`, статика на CDN) и
    поднимет `api/index.js`. Фронтенд ходит на `/api/*` того же домена.
 
-Локально тот же код работает на файловой БД (`TURSO_DATABASE_URL` пустой) —
-менять ничего не нужно. Альтернатива Vercel — один Node-хост (Railway/Render):
-подключите репозиторий, `npm run build && npm start`, задайте те же env
-(Turso не обязателен — можно оставить локальный файл на диске хоста).
+Локально тот же код работает без БД (`DATABASE_URL` пустой → in-memory) или с той
+же Supabase-строкой. Альтернатива Vercel — один Node-хост (Railway/Render):
+подключите репозиторий, `npm run build && npm start`, задайте те же env.
 
 ## Как это работает
 
@@ -181,10 +183,10 @@ api/
 server/
   config.js       env + определение этапов воронки
   clinicCards.js  read-only клиент Clinic Cards API (GET)
-  db.js           libSQL/Turso: positions, transitions, cache
+  db.js           Postgres/Supabase (+ in-memory fallback): positions, transitions, cache
   mapper.js       CC-пациент → карточка борда (SLA, окно, застрял, визит)
   mockData.js     демо-данные для режима без ключа
-  store.js        кэш выгрузки CC (память + Turso) + сборка борда
+  store.js        кэш выгрузки CC (память + БД) + сборка борда
   app.js          Express-приложение (роуты) — без listen
   index.js        listen() для локали / Node-хоста
 vercel.json       сборка фронта + роут /api/* → функция
