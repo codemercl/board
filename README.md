@@ -63,13 +63,47 @@ Vercel — serverless, поэтому данные хранятся в **Supabas
 холодные старты — это держит нас под лимитом 60 запросов/мин).
 
 1. **Supabase БД:** создайте проект на [supabase.com](https://supabase.com).
-   Затем **Project Settings → Database → Connection string → Pooler**
-   (Transaction mode, порт `6543`) — это и есть `DATABASE_URL`. Пример:
+   Затем **Project Settings → Database → Connection string → Transaction**
+   (пулер, порт `6543`) — скопируйте строку и подставьте пароль. Это и есть
+   `DATABASE_URL`. Пример:
    ```
    postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres
    ```
-   Таблицы (`positions`, `transitions`, `cache`) создаются автоматически при
-   первом запросе — SQL выполнять вручную не нужно.
+   > ⚠️ Нужна именно **строка подключения** (Database → Connection string), а
+   > **не** API-ключи `anon`/`service_role` — приложение ходит в Postgres
+   > напрямую, а не через `@supabase/supabase-js`.
+
+   Таблицы (`positions`, `transitions`, `cache`) создаются **автоматически** при
+   первом запросе — вручную SQL выполнять не нужно. Если хотите создать их
+   заранее (например, вашим привычным способом через **SQL Editor**) —
+   выполните:
+   ```sql
+   create table if not exists positions (
+     patient_id text primary key,
+     stage text not null,
+     entered_at text not null,
+     first_seen text not null,
+     hot integer,
+     reminder_dismissed_at text,
+     updated_at text not null
+   );
+   create table if not exists transitions (
+     id bigserial primary key,
+     patient_id text not null,
+     from_stage text not null,
+     to_stage text not null,
+     at text not null,
+     duration_ms bigint,
+     on_time integer,
+     has_norm integer
+   );
+   create index if not exists idx_transitions_at on transitions(at);
+   create table if not exists cache (
+     key text primary key,
+     value text not null,
+     fetched_at text not null
+   );
+   ```
 2. **Импорт в Vercel:** New Project → выберите этот GitHub-репозиторий. Framework
    Preset — *Other* (сборка и роутинг заданы в `vercel.json`).
 3. **Environment Variables** (Project → Settings → Environment Variables):
