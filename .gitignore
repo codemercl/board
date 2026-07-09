@@ -1,0 +1,14 @@
+node_modules
+dist
+dist-ssr
+*.local
+.DS_Store
+.vite
+
+# secrets & local DB
+.env
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm

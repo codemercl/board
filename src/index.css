@@ -1,0 +1,112 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  height: 100vh;
+  overflow: hidden;
+  background: #f4f6f9;
+  font-family: 'Onest', system-ui, -apple-system, sans-serif;
+  color: #0f1b2d;
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  height: 100vh;
+}
+
+@keyframes ccpulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.5);
+  }
+  70% {
+    box-shadow: 0 0 0 6px rgba(52, 211, 153, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(52, 211, 153, 0);
+  }
+}
+
+@keyframes ccdot {
+  0% {
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 5px rgba(37, 99, 235, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0);
+  }
+}
+
+@keyframes ccspin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* horizontal board scrollbar */
+.ccboard::-webkit-scrollbar {
+  height: 11px;
+}
+.ccboard::-webkit-scrollbar-thumb {
+  background: #c7d0dc;
+  border-radius: 8px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+.ccboard::-webkit-scrollbar-thumb:hover {
+  background: #aebbcb;
+}
+.ccboard::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* vertical column scrollbar */
+.cccol::-webkit-scrollbar {
+  width: 7px;
+}
+.cccol::-webkit-scrollbar-thumb {
+  background: #d7dee8;
+  border-radius: 6px;
+}
+.cccol::-webkit-scrollbar-thumb:hover {
+  background: #c2cdda;
+}
+.cccol::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ccsearch::placeholder {
+  color: rgba(255, 255, 255, 0.52);
+}
+
+/* ---- hover states (the design used style-hover attributes) ---- */
+.cc-bell:hover {
+  background: rgba(255, 255, 255, 0.18) !important;
+}
+.cc-card {
+  will-change: transform;
+}
+.cc-card:hover {
+  transform: translateY(-2px);
+}
+.cc-collapsed-col:hover {
+  filter: brightness(0.97);
+}
+.cc-col-collapse:hover {
+  background: rgba(255, 255, 255, 0.7) !important;
+}
+.cc-action:hover {
+  background: #f1f5fa !important;
+}
+.cc-move:hover {
+  filter: brightness(1.08);
+}
+.cc-close:hover {
+  background: #f4f6fa !important;
+}
+.cc-notif:hover {
+  background: #f7f9fc;
+}
