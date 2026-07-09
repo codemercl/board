@@ -2,13 +2,20 @@
 
 Канбан-борд потока пациентов стоматологической клиники. UI реализован 1:1 по
 дизайну из Claude Design; данные о пациентах тянутся **из Clinic Cards API**
-(только чтение), а позиции карточек на борде хранятся в **своей БД** (SQLite).
+(только чтение), а позиции карточек на борде хранятся в **своей БД**
+(libSQL/Turso — SQLite-совместимая, локально файл, в проде serverless).
 
 ```
-Браузер ──/api──► Express (server/) ──Token──► Clinic Cards API   (read-only)
+Браузер ──/api──► Express (server/) ──Token──► Clinic Cards API   (read-only, GET)
                        │
-                       └── SQLite (data/board.db)  ← позиции карточек (наши)
+                       └── libSQL/Turso   ← позиции карточек + кэш выгрузки CC
 ```
+
+Разворачивается двумя способами:
+- **Один Node-хост** (локально, Railway, Render): `npm run build && npm start` —
+  Express отдаёт `dist/` и API с одного порта.
+- **Vercel** (serverless): фронт — статика на CDN, бэкенд — функция `api/index.js`,
+  БД — Turso. См. [«Деплой на Vercel»](#деплой-на-vercel).
 
 ## Быстрый старт
 
@@ -34,7 +41,9 @@ npm run dev                  # backend :8787 + frontend :5173 одновреме
 | `CLINIC_CARDS_PLANS_SINCE` | С какой даты искать планы лечения для поля «Послуга». |
 | `PORT` | Порт бэкенда (8787). |
 | `CC_CACHE_TTL_SECONDS` | TTL кэша выгрузки из CC (лимит API — 60 запросов/мин). |
-| `DB_PATH` | Путь к SQLite-файлу с позициями. |
+| `TURSO_DATABASE_URL` | libSQL/Turso URL. **Пусто → локальный файл** `./data/board.db`. Для прода — `libsql://…`. |
+| `TURSO_AUTH_TOKEN` | Токен Turso (для прод-БД). |
+| `DB_PATH` | Путь к локальному файлу БД (когда `TURSO_DATABASE_URL` пуст). |
 | `WINDOW_DAYS` | Сколько дней показывать пациента после создания заявки; переход на этап продлевает окно (по умолч. 30). |
 | `STUCK_DAYS` | Без перехода столько дней → «Потребують уваги» (3). |
 | `HOT_VISIT_DAYS` | «Гарячі»: ближайший визит в пределах N дней (1). |
@@ -42,6 +51,36 @@ npm run dev                  # backend :8787 + frontend :5173 одновреме
 
 > Ключ живёт только на бэкенде и никогда не попадает в браузер. `.env` и
 > `data/` — в `.gitignore`.
+
+## Деплой на Vercel
+
+Vercel — serverless, поэтому файловой SQLite и фонового процесса там нет. Данные
+хранятся в **Turso** (libSQL, SQLite-совместимая), а Express обёрнут в функцию
+`api/index.js`. Clinic Cards дёргается не чаще раза в `CC_CACHE_TTL_SECONDS`
+(выгрузка кэшируется в Turso и переживает холодные старты).
+
+1. **Turso БД:**
+   ```bash
+   curl -sSfL https://get.tur.so/install.sh | bash   # или brew install tursodatabase/tap/turso
+   turso auth login
+   turso db create board
+   turso db show board --url            # → TURSO_DATABASE_URL
+   turso db tokens create board         # → TURSO_AUTH_TOKEN
+   ```
+2. **Импорт в Vercel:** New Project → выберите этот GitHub-репозиторий. Framework
+   Preset — *Other* (сборка и роутинг заданы в `vercel.json`).
+3. **Environment Variables** (Project → Settings → Environment Variables):
+   - `CLINIC_CARDS_API_KEY` — ваш ключ Clinic Cards
+   - `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` — из шага 1
+   - при желании: `CLINIC_CARDS_CLOSED_STATUSES`, `CC_CACHE_TTL_SECONDS`,
+     `WINDOW_DAYS`, `STUCK_DAYS`, `HOT_VISIT_DAYS`, `VISITS_BACK_DAYS`/`VISITS_FWD_DAYS`
+4. **Deploy.** Vercel соберёт фронт (`npm run build` → `dist`, статика на CDN) и
+   поднимет `api/index.js`. Фронтенд ходит на `/api/*` того же домена.
+
+Локально тот же код работает на файловой БД (`TURSO_DATABASE_URL` пустой) —
+менять ничего не нужно. Альтернатива Vercel — один Node-хост (Railway/Render):
+подключите репозиторий, `npm run build && npm start`, задайте те же env
+(Turso не обязателен — можно оставить локальный файл на диске хоста).
 
 ## Как это работает
 
@@ -137,14 +176,18 @@ npm run dev                  # backend :8787 + frontend :5173 одновреме
 ## Структура
 
 ```
+api/
+  index.js        Vercel serverless entry (экспорт Express app)
 server/
   config.js       env + определение этапов воронки
-  clinicCards.js  read-only клиент Clinic Cards API
-  db.js           SQLite: таблица positions
-  mapper.js       CC-пациент → карточка борда (услуга, SLA, врач, лента)
+  clinicCards.js  read-only клиент Clinic Cards API (GET)
+  db.js           libSQL/Turso: positions, transitions, cache
+  mapper.js       CC-пациент → карточка борда (SLA, окно, застрял, визит)
   mockData.js     демо-данные для режима без ключа
-  store.js        кэш выгрузки CC + сборка борда
-  index.js        Express: роуты, статика dist
+  store.js        кэш выгрузки CC (память + Turso) + сборка борда
+  app.js          Express-приложение (роуты) — без listen
+  index.js        listen() для локали / Node-хоста
+vercel.json       сборка фронта + роут /api/* → функция
 src/
   api.js          клиент нашего бэкенда
   logic.js        computeView — вью-модель борда
