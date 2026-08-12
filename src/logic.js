@@ -21,6 +21,8 @@ const stuckStyle = { bg: '#fff8ef', border: '#e7c893', shadow: '0 0 0 1.6px rgba
 const followupStyle = { bg: '#eef4ff', border: '#9fc0f0', shadow: '0 0 0 1.6px rgba(37,99,235,.24),0 16px 32px -16px rgba(37,99,235,.45)' }
 // Frozen — manually put on hold. Icy cyan highlight; overrides attention glows.
 const frozenStyle = { bg: '#ecf8fb', border: '#a4d6e6', shadow: '0 0 0 1.6px rgba(8,145,178,.20),0 16px 32px -18px rgba(8,145,178,.4)' }
+// On «Очікує план» but nobody assigned yet — indigo call-to-action highlight.
+const assignStyle = { bg: '#eef1ff', border: '#b7c0f4', shadow: '0 0 0 1.6px rgba(79,70,229,.22),0 16px 32px -16px rgba(79,70,229,.42)' }
 
 function hash(str) {
   let h = 0
@@ -64,17 +66,19 @@ export function computeView(state, props, setState, ctx) {
     const idx = CHAIN.indexOf(p.stage)
     const nextId = idx > -1 && idx < CHAIN.length - 1 ? CHAIN[idx + 1] : null
     const nextTitle = nextId ? S[nextId].title : ''
-    const glowStyle = frozen ? frozenStyle : needsFollowup ? followupStyle : isStuck ? stuckStyle : at
     // Plan-stage status chip: sign-off progress / postponed / overdue.
     const pr = p.planReview || null
+    // On «Очікує план» with nobody assigned yet → needs an admin to pick лікарі.
+    const needsAssign = p.stage === 'plan_wait' && !!pr && !pr.hasResponsibles && !pr.postponed
+    const glowStyle = frozen ? frozenStyle : needsAssign ? assignStyle : needsFollowup ? followupStyle : isStuck ? stuckStyle : at
     let planChip = null
-    if (p.stage === 'plan_wait' && pr) {
+    if (p.stage === 'plan_wait' && pr && !needsAssign) {
       if (pr.postponed) planChip = { label: 'Відкладено', tone: pr.postponeFollowupDue ? 'over' : 'warn' }
       else if (pr.hasResponsibles) planChip = { label: `План ${pr.readyCount}/${pr.total}`, tone: pr.allReady ? 'ok' : (pr.planOverdue ? 'over' : 'warn') }
-      else if (pr.planOverdue) planChip = { label: 'План 48 год+', tone: 'over' }
     }
     return Object.assign({}, p, {
       planChip,
+      needsAssign,
       adminInitials: a.initials, adminName: a.name, adminColor: a.color,
       stageColor: st.color, stageTitle: st.title, stageTint: st.tint, stageNorm: st.norm,
       slaColor: ss.c, slaBg: ss.b, slaBorder: ss.bd,

@@ -253,7 +253,9 @@ const PING_LABEL = { 24: 'Візит за < 24 год', 4: 'Візит за < 4 
 function PlanReview({ sel }) {
   const pr = sel.planReview
   const [staff, setStaff] = useState(null)
-  const [pickerOpen, setPickerOpen] = useState(false)
+  // Auto-open the doctor picker when nobody is assigned yet (admin just dropped
+  // the card into «Очікує план» and clicked it).
+  const [pickerOpen, setPickerOpen] = useState(pr.canManage && !pr.hasResponsibles)
   const [comment, setComment] = useState('')
   const [postponeOpen, setPostponeOpen] = useState(false)
   const [postponeComment, setPostponeComment] = useState('')

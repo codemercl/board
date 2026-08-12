@@ -54,6 +54,11 @@ function PatientCard({ p, dnd }) {
           <Icon id="ic-snow" size={12} />
           ЗАМОРОЖЕНА
         </div>
+      ) : p.needsAssign ? (
+        <div style={css('display:inline-flex;align-self:flex-start;align-items:center;gap:5px;padding:4px 10px;border-radius:7px;background:#e5e9ff;color:#4338ca;font-size:10px;font-weight:700;letter-spacing:.03em')}>
+          <Icon id="ic-users" size={12} />
+          ПРИЗНАЧТЕ ВІДПОВІДАЛЬНИХ
+        </div>
       ) : p.needsFollowup ? (
         <div style={css('display:flex;align-self:stretch;align-items:flex-start;gap:6px;padding:7px 8px;border-radius:9px;background:#e7f0fe;border:1px solid #bcd4f6')}>
           <div style={css('flex:1;display:flex;flex-direction:column;gap:2px;min-width:0')}>
