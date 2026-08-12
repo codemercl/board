@@ -238,6 +238,72 @@ export function buildLive(snapshot) {
   return { seeds, rawNotifs }
 }
 
+// ─── treatment-plan review → display state ────────────────────────────────────
+// Turns the stored plan_review blob into the flags the board needs: how many
+// responsibles have signed off, whether the card may advance, the 48h SLA
+// deadline, the appointment pings, and the "postponed too long" nag.
+function planReviewFor(pos, stage, enteredMs, visitMs, now) {
+  let raw = pos && pos.plan_review
+  if (typeof raw === 'string') { try { raw = JSON.parse(raw) } catch { raw = null } }
+  const responsibles = Array.isArray(raw?.responsibles) ? raw.responsibles : []
+  const signoffs = raw?.signoffs || {}
+  const postpone = raw?.postpone || null
+
+  const list = responsibles.map((r) => {
+    const so = signoffs[String(r.id)]
+    return {
+      id: String(r.id), name: r.name || String(r.id),
+      initials: initialsOf(r.name || String(r.id)),
+      ready: !!so && so.status === 'ready',
+      comment: so?.comment || '',
+      at: so?.at || null,
+    }
+  })
+  const total = list.length
+  const readyCount = list.filter((r) => r.ready).length
+  const hasResponsibles = total > 0
+  const allReady = hasResponsibles && readyCount === total
+
+  const onPlan = stage === 'plan_wait'
+  // Effective term = min(48h SLA, appointment). Reminders and overdue are
+  // measured against whichever comes first, so a soon visit tightens the clock.
+  const slaEndMs = enteredMs + config.planSlaHours * 3600000
+  const hasVisit = Number.isFinite(visitMs) && visitMs > enteredMs
+  const termEndMs = hasVisit ? Math.min(slaEndMs, visitMs) : slaEndMs
+  const termSpan = Math.max(1, termEndMs - enteredMs)
+  const planElapsedFrac = onPlan ? Math.max(0, (now - enteredMs) / termSpan) : 0
+  const planOverdue = onPlan && !allReady && now > termEndMs
+  // Visit imminent (< N h) and still no plan → urgent head-doctor escalation.
+  const visitSoon = onPlan && !allReady && hasVisit && visitMs > now && (visitMs - now) <= config.visitSoonHours * 3600000
+
+  // Appointment pings (display only): show a "visit soon" badge on the card.
+  let planPing = null
+  if (onPlan && Number.isFinite(visitMs) && visitMs > now) {
+    const hoursLeft = (visitMs - now) / 3600000
+    for (const w of config.planPingHours) {
+      if (hoursLeft <= w) { planPing = w; break }
+    }
+  }
+
+  // Postponed and left sitting → after N hours it needs everyone re-notified.
+  const postponeAtMs = postpone?.at ? Date.parse(postpone.at) : 0
+  const postponeFollowupDue = onPlan && !!postponeAtMs && now > postponeAtMs + config.postponeFollowupHours * 3600000
+
+  return {
+    responsibles: list, total, readyCount, hasResponsibles, allReady,
+    postponed: !!postpone,
+    postponeComment: postpone?.comment || '',
+    postponeName: postpone?.name || '',
+    postponeAt: postpone?.at || null,
+    postponeFollowupDue,
+    planDeadlineAt: onPlan ? new Date(termEndMs).toISOString() : null,
+    planElapsedFrac, // 0..1 of the term elapsed (>1 = overdue)
+    planOverdue,
+    visitSoon,
+    planPing, // hours-before-visit window that's currently active, or null
+  }
+}
+
 // ─── seeds + saved positions → final board payload ────────────────────────────
 
 export function assemble(seeds, rawNotifs, meta = {}) {
@@ -310,6 +376,8 @@ export function assemble(seeds, rawNotifs, meta = {}) {
     }
     const overdueDays = visitOverdue ? Math.floor((now - visitMs) / DAY_MS) : 0
 
+    const planReview = planReviewFor(pos, stage, enteredMs, visitMs, now)
+
     admins[seed.admin.key] = { initials: seed.admin.initials, name: seed.admin.name, color: seed.admin.color }
 
     patients.push({
@@ -340,6 +408,7 @@ export function assemble(seeds, rawNotifs, meta = {}) {
       followupVisitAt: seed.dueVisitAt || null,
       followupVisitLabel: needsFollowup ? formatVisit(seed.dueVisitAt, new Date(now)) : '',
       daysLeft: Math.max(0, Math.ceil((windowEndMs - now) / DAY_MS)),
+      planReview,
     })
   }
 

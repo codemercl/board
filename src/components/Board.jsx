@@ -9,6 +9,13 @@ const WINDOW_BASE = 25
 const WINDOW_STEP = 25
 const WINDOW_JUMP = 100
 
+// Plan-review chip palette (matches src/logic.js planChip.tone).
+const PLAN_CHIP = {
+  ok:   { bg: '#dcfce7', color: '#15803d' },
+  warn: { bg: '#fdecd0', color: '#b45309' },
+  over: { bg: '#ffe1e7', color: '#be123c' },
+}
+
 function PatientCard({ p, dnd }) {
   const draggable = !!dnd
   const isDragging = dnd && dnd.dragId === p.id
@@ -47,6 +54,11 @@ function PatientCard({ p, dnd }) {
           <Icon id="ic-snow" size={12} />
           ЗАМОРОЖЕНА
         </div>
+      ) : p.needsAssign ? (
+        <div style={css('display:inline-flex;align-self:flex-start;align-items:center;gap:5px;padding:4px 10px;border-radius:7px;background:#e5e9ff;color:#4338ca;font-size:10px;font-weight:700;letter-spacing:.03em')}>
+          <Icon id="ic-users" size={12} />
+          ПРИЗНАЧТЕ ВІДПОВІДАЛЬНИХ
+        </div>
       ) : p.needsFollowup ? (
         <div style={css('display:flex;align-self:stretch;align-items:flex-start;gap:6px;padding:7px 8px;border-radius:9px;background:#e7f0fe;border:1px solid #bcd4f6')}>
           <div style={css('flex:1;display:flex;flex-direction:column;gap:2px;min-width:0')}>
@@ -61,13 +73,15 @@ function PatientCard({ p, dnd }) {
               </div>
             )}
           </div>
-          <button
-            onClick={(e) => { e.stopPropagation(); p.dismissFollowup() }}
-            title="Закрити нагадування"
-            style={css('flex:none;width:20px;height:20px;border:none;border-radius:6px;background:transparent;color:#5b7bb0;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0')}
-          >
-            <Icon id="ic-x" size={13} />
-          </button>
+          {dnd && (
+            <button
+              onClick={(e) => { e.stopPropagation(); p.dismissFollowup() }}
+              title="Закрити нагадування"
+              style={css('flex:none;width:20px;height:20px;border:none;border-radius:6px;background:transparent;color:#5b7bb0;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0')}
+            >
+              <Icon id="ic-x" size={13} />
+            </button>
+          )}
         </div>
       ) : p.isStuck ? (
         <div style={css('display:flex;align-self:flex-start;flex-direction:column;gap:4px')}>
@@ -117,6 +131,13 @@ function PatientCard({ p, dnd }) {
         <span style={{ ...css('width:7px;height:7px;border-radius:50%;flex:none'), background: p.stageColor }} />
         <span style={css('overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}>{p.comment || p.service}</span>
       </div>
+
+      {p.planChip && (
+        <div style={{ ...css('display:inline-flex;align-self:flex-start;align-items:center;gap:5px;padding:3px 9px;border-radius:7px;font-size:10px;font-weight:700;letter-spacing:.02em'), background: PLAN_CHIP[p.planChip.tone].bg, color: PLAN_CHIP[p.planChip.tone].color }}>
+          <Icon id="ic-users" size={11} />
+          {p.planChip.label}
+        </div>
+      )}
 
       {p.showDoctor && (
         <div style={css('display:flex;align-items:center;gap:8px;color:#56667c;font-size:12px')}>

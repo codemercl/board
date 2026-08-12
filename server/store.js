@@ -3,6 +3,7 @@ import { fetchClinicSnapshot } from './clinicCards.js'
 import { buildLive, assemble } from './mapper.js'
 import { buildMock } from './mockData.js'
 import { getAllPositions, ensureMissingPositions, getConversionStats, getCache, setCache } from './db.js'
+import { recentEvents } from './notify.js'
 
 // Caching, serverless-safe:
 //  1. In-memory snapshot — instant on warm lambda instances.
@@ -82,7 +83,11 @@ export async function getBoard(force = false) {
   const inserted = await ensureMissingPositions(snap.seeds, known)
   const positions = inserted ? await getAllPositions() : known
   const conversion = await getConversionStats()
-  return assemble(snap.seeds, snap.rawNotifs, {
+  // Live workflow events (plan assigned / signed off / postponed / overdue)
+  // ride at the top of the feed, ahead of the CRM import notifications.
+  const events = recentEvents()
+  const notifs = [...events, ...(snap.rawNotifs || [])].slice(0, 12)
+  return assemble(snap.seeds, notifs, {
     positions,
     conversion,
     updatedAt: snap.updatedAt,

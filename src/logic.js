@@ -21,6 +21,8 @@ const stuckStyle = { bg: '#fff8ef', border: '#e7c893', shadow: '0 0 0 1.6px rgba
 const followupStyle = { bg: '#eef4ff', border: '#9fc0f0', shadow: '0 0 0 1.6px rgba(37,99,235,.24),0 16px 32px -16px rgba(37,99,235,.45)' }
 // Frozen — manually put on hold. Icy cyan highlight; overrides attention glows.
 const frozenStyle = { bg: '#ecf8fb', border: '#a4d6e6', shadow: '0 0 0 1.6px rgba(8,145,178,.20),0 16px 32px -18px rgba(8,145,178,.4)' }
+// On «Очікує план» but nobody assigned yet — indigo call-to-action highlight.
+const assignStyle = { bg: '#eef1ff', border: '#b7c0f4', shadow: '0 0 0 1.6px rgba(79,70,229,.22),0 16px 32px -16px rgba(79,70,229,.42)' }
 
 function hash(str) {
   let h = 0
@@ -64,8 +66,19 @@ export function computeView(state, props, setState, ctx) {
     const idx = CHAIN.indexOf(p.stage)
     const nextId = idx > -1 && idx < CHAIN.length - 1 ? CHAIN[idx + 1] : null
     const nextTitle = nextId ? S[nextId].title : ''
-    const glowStyle = frozen ? frozenStyle : needsFollowup ? followupStyle : isStuck ? stuckStyle : at
+    // Plan-stage status chip: sign-off progress / postponed / overdue.
+    const pr = p.planReview || null
+    // On «Очікує план» with nobody assigned yet → needs an admin to pick лікарі.
+    const needsAssign = p.stage === 'plan_wait' && !!pr && !pr.hasResponsibles && !pr.postponed
+    const glowStyle = frozen ? frozenStyle : needsAssign ? assignStyle : needsFollowup ? followupStyle : isStuck ? stuckStyle : at
+    let planChip = null
+    if (p.stage === 'plan_wait' && pr && !needsAssign) {
+      if (pr.postponed) planChip = { label: 'Відкладено', tone: pr.postponeFollowupDue ? 'over' : 'warn' }
+      else if (pr.hasResponsibles) planChip = { label: `План ${pr.readyCount}/${pr.total}`, tone: pr.allReady ? 'ok' : (pr.planOverdue ? 'over' : 'warn') }
+    }
     return Object.assign({}, p, {
+      planChip,
+      needsAssign,
       adminInitials: a.initials, adminName: a.name, adminColor: a.color,
       stageColor: st.color, stageTitle: st.title, stageTint: st.tint, stageNorm: st.norm,
       slaColor: ss.c, slaBg: ss.b, slaBorder: ss.bd,
@@ -113,7 +126,11 @@ export function computeView(state, props, setState, ctx) {
   const rank = (p) => (p.needsFollowup ? 0 : p.isStuck ? 1 : p.isOver ? 2 : p.isWarn ? 3 : p.hot ? 4 : 5)
   const collapsed = state.collapsed
 
-  const columns = STAGES.map((s) => {
+  // Column visibility per role: `allowedStages` null/empty → every column.
+  const allowSet = ctx.allowedStages && ctx.allowedStages.length ? new Set(ctx.allowedStages) : null
+  const visibleStages = allowSet ? STAGES.filter((s) => allowSet.has(s.id)) : STAGES
+
+  const columns = visibleStages.map((s) => {
     const ps = visible
       .filter((p) => p.stage === s.id)
       .slice()
@@ -242,10 +259,30 @@ export function computeView(state, props, setState, ctx) {
       { iconHref: 'ic-calendar', label: 'Візит',   value: found.visit },
       { iconHref: 'ic-phone',    label: 'Нотатка', value: found.note },
     ].filter((r) => !!r.value)
+    // Treatment-plan review model for the panel (only meaningful on `plan`).
+    const pr = found.planReview || { responsibles: [], total: 0, readyCount: 0, hasResponsibles: false, allReady: false, postponed: false }
+    const meId = ctx.me?.id || null
+    const myResp = pr.responsibles.find((r) => String(r.id) === String(meId)) || null
+    const onPlan = found.stage === 'plan_wait'
+    // Forward move (plan_wait → plan) is blocked until everyone signed off.
+    const planMoveBlocked = onPlan && pr.hasResponsibles && !pr.allReady
+    const planReview = {
+      ...pr,
+      onPlan,
+      isResponsible: !!myResp,
+      mySignedOff: !!(myResp && myResp.ready),
+      canManage: !!ctx.isAdmin, // admins assign responsibles + act for others
+      moveBlocked: planMoveBlocked,
+      setResponsibles: (respList) => ctx.setPlanResponsibles && ctx.setPlanResponsibles(found.id, respList, found.name),
+      signoff: (comment, userId) => ctx.planSignoff && ctx.planSignoff(found.id, { comment, userId, patientName: found.name }),
+      postpone: (comment) => ctx.planPostpone && ctx.planPostpone(found.id, { comment, patientName: found.name }),
+    }
     sel = Object.assign({}, found, {
       timeline,
       infoRows,
+      planReview,
       hasNext: !!nextId,
+      planMoveBlocked,
       nextLabel: isBranch ? 'Повернути в роботу' : 'Перемістити: ' + (nextId ? S[nextId].title : ''),
       // KT with a visit date: no reaction norm — the SLA is the visit itself.
       slaLabel: found.slaByVisit
@@ -260,7 +297,7 @@ export function computeView(state, props, setState, ctx) {
           : (found.stageNorm ? 'Норматив реакції на етапі: ' + found.stageNorm : 'Етап без нормативу реакції'),
       slaBlockBg: found.isStuck ? '#fff8ef' : found.isOver ? '#fff8f9' : found.isWarn ? '#fffdf6' : '#fbfcfe',
       slaTextColor: found.isOver ? '#be123c' : found.isWarn ? '#b45309' : '#22334c',
-      moveNext: () => { if (nextId) moveStage(found.id, nextId) },
+      moveNext: () => { if (nextId && !planMoveBlocked) moveStage(found.id, nextId) },
     })
   }
 
@@ -268,9 +305,14 @@ export function computeView(state, props, setState, ctx) {
 
   return {
     columns, stats, tabs,
-    // Admin auth + drag-and-drop move (arbitrary column). Only admins can move.
+    // Auth: `isAdmin` here means "may move cards" (drives drag-and-drop + the
+    // panel move button). `manageUsers` unlocks the accounts page.
     isAdmin: !!ctx.isAdmin,
-    openLogin: ctx.openLogin || (() => {}),
+    me: ctx.me || null,
+    manageUsers: !!ctx.manageUsers,
+    screen: ctx.screen || 'board',
+    openUsers: ctx.openUsers || (() => {}),
+    openBoard: ctx.openBoard || (() => {}),
     logout: ctx.logout || (() => {}),
     moveTo: (id, stage) => moveStage(id, stage),
     workloadAll,

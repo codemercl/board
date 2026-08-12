@@ -1,5 +1,6 @@
 import { css } from '../css.js'
 import { Icon } from '../icons.jsx'
+import { ROLE_LABELS } from '../data.js'
 
 function relTime(iso) {
   if (!iso) return ''
@@ -146,40 +147,44 @@ export default function Header({ view, sync, onHelp }) {
         )}
       </button>
 
-      {/* admin login / logout */}
-      {view.isAdmin ? (
-        <div style={css('flex:none;display:flex;align-items:center;gap:8px')}>
-          <span
-            style={css(
-              "display:inline-flex;align-items:center;gap:7px;height:40px;padding:0 13px;border-radius:11px;background:rgba(52,211,153,.15);border:1px solid rgba(52,211,153,.4);color:#d1fae5;font-family:'Onest',sans-serif;font-size:12.5px;font-weight:600;white-space:nowrap"
-            )}
-          >
-            <span style={css('width:7px;height:7px;border-radius:50%;background:#34d399;flex:none')} />
-            Адміністратор
-          </span>
-          <button
-            className="cc-bell"
-            onClick={view.logout}
-            title="Вийти"
-            style={css(
-              'flex:none;width:40px;height:40px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.1);border-radius:11px;color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer'
-            )}
-          >
-            <Icon id="ic-ext" size={18} />
-          </button>
-        </div>
-      ) : (
+      {/* user management (admins only) */}
+      {view.manageUsers && (
         <button
           className="cc-bell"
-          onClick={view.openLogin}
-          style={css(
-            "flex:none;display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 15px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.1);border-radius:11px;color:#fff;font-family:'Onest',sans-serif;font-size:12.5px;font-weight:600;cursor:pointer;white-space:nowrap"
-          )}
+          onClick={view.screen === 'users' ? view.openBoard : view.openUsers}
+          title="Користувачі та права"
+          style={{
+            ...css("flex:none;display:inline-flex;align-items:center;gap:7px;height:40px;padding:0 14px;border-radius:11px;color:#fff;font-family:'Onest',sans-serif;font-size:12.5px;font-weight:600;cursor:pointer;white-space:nowrap"),
+            background: view.screen === 'users' ? 'rgba(255,255,255,.22)' : 'rgba(255,255,255,.1)',
+            border: '1px solid rgba(255,255,255,.16)',
+          }}
         >
-          <Icon id="ic-user" size={17} />
-          Вхід адміністратора
+          <Icon id="ic-users" size={17} />
+          {view.screen === 'users' ? 'До борду' : 'Користувачі'}
         </button>
       )}
+
+      {/* current user + logout */}
+      <div style={css('flex:none;display:flex;align-items:center;gap:8px')}>
+        <span
+          style={css(
+            "display:inline-flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:1px;height:40px;padding:0 13px;border-radius:11px;background:rgba(52,211,153,.14);border:1px solid rgba(52,211,153,.34);white-space:nowrap"
+          )}
+        >
+          <span style={css("font-family:'Onest',sans-serif;font-size:12.5px;font-weight:600;color:#eafff6;line-height:1.1")}>{view.me?.displayName || 'Користувач'}</span>
+          <span style={css("font-size:10px;font-weight:600;color:rgba(209,250,229,.7);line-height:1.1")}>{ROLE_LABELS[view.me?.role] || view.me?.role}</span>
+        </span>
+        <button
+          className="cc-bell"
+          onClick={view.logout}
+          title="Вийти"
+          style={css(
+            'flex:none;width:40px;height:40px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.1);border-radius:11px;color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer'
+          )}
+        >
+          <Icon id="ic-ext" size={18} />
+        </button>
+      </div>
     </div>
   )
 }

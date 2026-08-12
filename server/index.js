@@ -1,5 +1,7 @@
 import app from './app.js'
 import { config, isLive } from './config.js'
+import { startBot } from './bot.js'
+import { boardDeps } from './boardBot.js'
 
 // Local dev / single Node host (Railway, Render, a VPS, `npm start`).
 app.listen(config.port, () => {
@@ -7,4 +9,5 @@ app.listen(config.port, () => {
   if (!isLive) {
     console.log('[board] No CLINIC_CARDS_API_KEY set — serving demo data. Add the key to .env for live patients.')
   }
+  startBot(boardDeps) // no-op unless TELEGRAM_BOT_TOKEN is set
 })
