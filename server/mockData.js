@@ -81,8 +81,10 @@ const translateVisit = (v) =>
 export function buildMock() {
   const seeds = RAW.map((p, i) => {
     const a = ADMINS[p.admin]
-    // Sprinkle a couple of demo cards into the new "Направлений на КТ" stage.
-    const stage = i % 9 === 4 ? 'kt' : (STAGE_REMAP[p.stage] || 'consult_scheduled')
+    // Sprinkle demo cards into "Направлений на КТ"; split old "plan" cards
+    // between the new "Очікує план" waiting column and "План лікування складено".
+    let stage = i % 9 === 4 ? 'kt' : (STAGE_REMAP[p.stage] || 'consult_scheduled')
+    if (stage === 'plan' && i % 2 === 0) stage = 'plan_wait'
     return {
       id: `mock-${i + 1}`,
       name: p.name,

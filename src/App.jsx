@@ -10,6 +10,8 @@ import Board from './components/Board.jsx'
 import PatientPanel from './components/PatientPanel.jsx'
 import CrmFeed from './components/CrmFeed.jsx'
 import HelpModal from './components/HelpModal.jsx'
+import UsersAdmin from './components/UsersAdmin.jsx'
+import LoginScreen from './components/LoginScreen.jsx'
 
 // UI-only state (data lives in `board`).
 const INITIAL_STATE = {
@@ -20,6 +22,7 @@ const INITIAL_STATE = {
   collapsed: { lost: true },
   curatorFilter: null,
   workloadOpen: false,
+  screen: 'board', // 'board' | 'users'
 }
 
 const EMPTY_BOARD = { patients: [], admins: {}, notifications: [], updatedAt: null, source: null, error: null }
@@ -34,24 +37,40 @@ export default function App() {
   const [error, setError] = useState(null)
   const mounted = useRef(true)
 
-  // Admin auth: token in localStorage gates card moves (DnD + panel button).
-  const [isAdmin, setIsAdmin] = useState(() => !!api.getToken())
-  const [auth, setAuth] = useState({ open: false, error: null, busy: false })
+  // Auth: the whole app is gated behind login. `me` is the signed-in user
+  // profile (role, visible columns, canMove, manageUsers). A signed token in
+  // localStorage restores the session; the server re-checks permissions.
+  const [me, setMe] = useState(null)
+  const [authReady, setAuthReady] = useState(false)
+  const [loginState, setLoginState] = useState({ busy: false, error: null })
   const [helpOpen, setHelpOpen] = useState(false)
 
-  const openLogin = useCallback(() => setAuth({ open: true, error: null, busy: false }), [])
-  const closeLogin = useCallback(() => setAuth((a) => ({ ...a, open: false })), [])
-  const doLogout = useCallback(() => { api.logout(); setIsAdmin(false) }, [])
+  const doLogout = useCallback(() => {
+    api.logout()
+    setMe(null)
+    setState({ screen: 'board', selected: null })
+  }, [])
   const submitLogin = useCallback(async (user, password) => {
-    setAuth((a) => ({ ...a, busy: true, error: null }))
+    setLoginState({ busy: true, error: null })
     try {
-      await api.login(user, password)
+      const user_ = await api.login(user, password)
       if (!mounted.current) return
-      setIsAdmin(true)
-      setAuth({ open: false, error: null, busy: false })
+      setMe(user_)
+      setLoginState({ busy: false, error: null })
     } catch (e) {
-      if (mounted.current) setAuth((a) => ({ ...a, busy: false, error: e.message }))
+      if (mounted.current) setLoginState({ busy: false, error: e.message })
     }
+  }, [])
+
+  // Restore a session from the stored token on first mount.
+  useEffect(() => {
+    mounted.current = true
+    if (!api.getToken()) { setAuthReady(true); return }
+    api.me()
+      .then((u) => { if (mounted.current) setMe(u) })
+      .catch(() => { api.logout() })
+      .finally(() => { if (mounted.current) setAuthReady(true) })
+    return () => { mounted.current = false }
   }, [])
 
   const load = useCallback(async (force) => {
@@ -67,16 +86,13 @@ export default function App() {
     }
   }, [])
 
-  // Initial load + background polling.
+  // Initial load + background polling — only once authenticated.
   useEffect(() => {
-    mounted.current = true
+    if (!me) return undefined
     load(false)
     const t = setInterval(() => load(false), POLL_MS)
-    return () => {
-      mounted.current = false
-      clearInterval(t)
-    }
-  }, [load])
+    return () => clearInterval(t)
+  }, [load, me])
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true)
@@ -135,6 +151,28 @@ export default function App() {
     }
   }, [load])
 
+  // Plan-review actions all return the full reconciled board (like moveStage).
+  const applyBoard = useCallback((data) => {
+    if (!mounted.current) return
+    setBoard(data)
+    setError(data.error || null)
+  }, [])
+
+  const setPlanResponsibles = useCallback(async (id, responsibles, name) => {
+    try { applyBoard(await api.setPlanResponsibles(id, responsibles, name)) }
+    catch (e) { if (mounted.current) setError(e.message); throw e }
+  }, [applyBoard])
+
+  const planSignoff = useCallback(async (id, payload) => {
+    try { applyBoard(await api.planSignoff(id, payload)) }
+    catch (e) { if (mounted.current) setError(e.message); throw e }
+  }, [applyBoard])
+
+  const planPostpone = useCallback(async (id, payload) => {
+    try { applyBoard(await api.planPostpone(id, payload)) }
+    catch (e) { if (mounted.current) setError(e.message); throw e }
+  }, [applyBoard])
+
   const view = computeView(state, DEFAULT_PROPS, setState, {
     patients: board.patients,
     admins: board.admins,
@@ -143,8 +181,16 @@ export default function App() {
     moveStage,
     dismissFollowup,
     toggleFrozen,
-    isAdmin,
-    openLogin,
+    setPlanResponsibles,
+    planSignoff,
+    planPostpone,
+    isAdmin: !!(me && me.canMove),
+    allowedStages: me ? me.stages : null,
+    me,
+    manageUsers: !!(me && me.manageUsers),
+    screen: state.screen,
+    openUsers: () => setState({ screen: 'users', selected: null }),
+    openBoard: () => setState({ screen: 'board' }),
     logout: doLogout,
   })
 
@@ -157,90 +203,48 @@ export default function App() {
     onRefresh,
   }
 
+  // Auth gate: nothing renders until we know who (if anyone) is signed in.
+  if (!authReady) {
+    return (
+      <>
+        <IconDefs />
+        <div style={css('height:100vh;display:flex;align-items:center;justify-content:center;background:#f4f6f9')}>
+          <span style={css('font-size:13px;color:#7c8aa0;font-weight:600')}>Завантаження…</span>
+        </div>
+      </>
+    )
+  }
+  if (!me) {
+    return (
+      <>
+        <IconDefs />
+        <LoginScreen busy={loginState.busy} error={loginState.error} onSubmit={submitLogin} />
+      </>
+    )
+  }
+
+  const onUsers = view.screen === 'users' && view.manageUsers
+
   return (
     <>
       <IconDefs />
       <div style={css('position:relative;height:100vh;display:flex;flex-direction:column;overflow:hidden;background:#f4f6f9')}>
         <Header view={view} sync={sync} onHelp={() => setHelpOpen(true)} />
-        <PulseBar view={view} />
+        {!onUsers && <PulseBar view={view} />}
 
-        <div data-screen-label="Канбан-борд" style={css('flex:1;min-height:0;position:relative')}>
-          <Board view={view} />
-          {view.hasSel && <PatientPanel view={view} />}
-          {view.feedOpen && <CrmFeed view={view} />}
-          {loading && board.patients.length === 0 && <LoadingOverlay />}
-        </div>
+        {onUsers ? (
+          <UsersAdmin view={view} />
+        ) : (
+          <div data-screen-label="Канбан-борд" style={css('flex:1;min-height:0;position:relative')}>
+            <Board view={view} />
+            {view.hasSel && <PatientPanel view={view} />}
+            {view.feedOpen && <CrmFeed view={view} />}
+            {loading && board.patients.length === 0 && <LoadingOverlay />}
+          </div>
+        )}
       </div>
-      {auth.open && (
-        <LoginModal busy={auth.busy} error={auth.error} onSubmit={submitLogin} onClose={closeLogin} />
-      )}
       {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
     </>
-  )
-}
-
-function LoginModal({ busy, error, onSubmit, onClose }) {
-  const [user, setUser] = useState('admin')
-  const [password, setPassword] = useState('')
-  const submit = (e) => { e.preventDefault(); if (!busy) onSubmit(user, password) }
-
-  return (
-    <div
-      onMouseDown={onClose}
-      style={css('position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;background:rgba(11,23,40,.55);backdrop-filter:blur(3px)')}
-    >
-      <form
-        onSubmit={submit}
-        onMouseDown={(e) => e.stopPropagation()}
-        style={css('width:340px;background:#fff;border-radius:18px;box-shadow:0 40px 80px -30px rgba(16,35,64,.6);padding:24px;display:flex;flex-direction:column;gap:16px')}
-      >
-        <div style={css('display:flex;flex-direction:column;gap:5px')}>
-          <span style={css('font-size:17px;font-weight:700;color:#101d31;letter-spacing:-.015em')}>Вхід адміністратора</span>
-          <span style={css('font-size:12px;color:#8a97a8')}>Переміщення карток доступне лише адміністратору</span>
-        </div>
-
-        <label style={css('display:flex;flex-direction:column;gap:6px')}>
-          <span style={css('font-size:11.5px;font-weight:600;color:#56667c')}>Логін</span>
-          <input
-            value={user}
-            onChange={(e) => setUser(e.target.value)}
-            autoFocus
-            style={css("height:40px;padding:0 12px;border:1px solid #e2e9f2;border-radius:11px;font-family:'Onest',sans-serif;font-size:13.5px;color:#22334c;outline:none")}
-          />
-        </label>
-        <label style={css('display:flex;flex-direction:column;gap:6px')}>
-          <span style={css('font-size:11.5px;font-weight:600;color:#56667c')}>Пароль</span>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="admin"
-            style={css("height:40px;padding:0 12px;border:1px solid #e2e9f2;border-radius:11px;font-family:'Onest',sans-serif;font-size:13.5px;color:#22334c;outline:none")}
-          />
-        </label>
-
-        {error && (
-          <div style={css('font-size:12px;color:#be123c;background:#fff1f3;border:1px solid #fbcad3;border-radius:9px;padding:8px 11px')}>{error}</div>
-        )}
-
-        <div style={css('display:flex;gap:9px;margin-top:2px')}>
-          <button
-            type="button"
-            onClick={onClose}
-            style={css("flex:none;padding:0 16px;height:42px;border:1px solid #e2e9f2;border-radius:12px;background:#fff;color:#56667c;font-family:'Onest',sans-serif;font-size:13px;font-weight:600;cursor:pointer")}
-          >
-            Скасувати
-          </button>
-          <button
-            type="submit"
-            disabled={busy}
-            style={css("flex:1;height:42px;border:none;border-radius:12px;background:linear-gradient(120deg,#1e3a5f,#2563eb);color:#fff;font-family:'Onest',sans-serif;font-size:13px;font-weight:600;cursor:pointer;opacity:1")}
-          >
-            {busy ? 'Вхід…' : 'Увійти'}
-          </button>
-        </div>
-      </form>
-    </div>
   )
 }
 
