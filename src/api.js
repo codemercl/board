@@ -42,7 +42,7 @@ async function req(url, opts) {
 }
 
 export function fetchBoard(force = false) {
-  return req(`/api/board${force ? '?refresh=1' : ''}`)
+  return req(`/api/board${force ? '?refresh=1' : ''}`, { headers: { ...authHeaders() } })
 }
 
 // Login → stores the bearer token; returns the user profile (role + columns).
@@ -118,7 +118,7 @@ export function dismissFollowup(id, visitAt) {
 }
 
 export function refreshBoard() {
-  return req('/api/refresh', { method: 'POST' })
+  return req('/api/refresh', { method: 'POST', headers: { ...authHeaders() } })
 }
 
 // ─── Treatment-plan review ──────────────────────────────────────────────────
