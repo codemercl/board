@@ -300,7 +300,7 @@ function PlanReview({ sel }) {
   const selectedIds = new Set(pr.responsibles.map((r) => String(r.id)))
 
   return (
-    <div style={css('border:1px solid #e2e9f2;border-radius:14px;overflow:hidden')}>
+    <div style={css('flex:none;border:1px solid #e2e9f2;border-radius:14px;overflow:hidden')}>
       {/* header */}
       <div style={css('display:flex;align-items:center;gap:8px;padding:11px 13px;background:#f4f0ff;border-bottom:1px solid #ece6fb')}>
         <span style={css('width:26px;height:26px;border-radius:8px;background:#fff;color:#0d9488;display:flex;align-items:center;justify-content:center;flex:none')}>
