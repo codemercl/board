@@ -77,17 +77,43 @@ async function getSnapshot(force = false) {
   }
 }
 
+// Synthetic test card (not from Clinic Cards) so the Telegram bot flow can be
+// exercised end-to-end: it lands in «Очікує план» with no responsibles, ready
+// to assign. Disable by setting TEST_CARD=off.
+const TEST_SEED = {
+  id: 'test-plan-1',
+  name: 'Тест Пацієнт (бот)',
+  phone: '+380 99 123-45-67',
+  service: 'Тестовий план лікування',
+  comment: 'Тестова картка — перевірка бота',
+  dueVisitAt: null,
+  dueVisitNote: '',
+  doctor: '',
+  visit: '',
+  visitAt: null,
+  note: 'Тестова картка',
+  hot: false,
+  synced: false,
+  admin: { key: '_none', initials: '—', name: 'Не призначено', color: '#94a3b8' },
+  defaultStage: 'plan_wait',
+  createdAt: null,
+  slaOverride: null,
+}
+const withTestSeeds = (seeds) =>
+  String(process.env.TEST_CARD).toLowerCase() === 'off' ? seeds : [TEST_SEED, ...seeds]
+
 export async function getBoard(force = false) {
   const snap = await getSnapshot(force)
+  const seeds = withTestSeeds(snap.seeds)
   const known = await getAllPositions()
-  const inserted = await ensureMissingPositions(snap.seeds, known)
+  const inserted = await ensureMissingPositions(seeds, known)
   const positions = inserted ? await getAllPositions() : known
   const conversion = await getConversionStats()
   // Live workflow events (plan assigned / signed off / postponed / overdue)
   // ride at the top of the feed, ahead of the CRM import notifications.
   const events = recentEvents()
   const notifs = [...events, ...(snap.rawNotifs || [])].slice(0, 12)
-  return assemble(snap.seeds, notifs, {
+  return assemble(seeds, notifs, {
     positions,
     conversion,
     updatedAt: snap.updatedAt,
