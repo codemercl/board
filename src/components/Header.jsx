@@ -26,6 +26,7 @@ export default function Header({ view, sync, onHelp }) {
   return (
     <div
       data-screen-label="Шапка"
+      className="cc-header"
       style={css(
         "flex:none;display:flex;align-items:center;gap:14px;padding:15px 22px;background:linear-gradient(120deg,#0f2138 0%,#19354f 55%,#1e3a5f 100%);box-shadow:0 8px 24px -16px rgba(15,33,56,.7);z-index:30"
       )}
@@ -47,7 +48,7 @@ export default function Header({ view, sync, onHelp }) {
           <div style={css('font-size:18px;font-weight:700;letter-spacing:-.015em;color:#fff;white-space:nowrap')}>
             Потік пацієнтів
           </div>
-          <div style={css('display:flex;align-items:center;gap:6px;font-size:11px;color:rgba(255,255,255,.6);white-space:nowrap')}>
+          <div className="cc-hide-mobile" style={css('display:flex;align-items:center;gap:6px;font-size:11px;color:rgba(255,255,255,.6);white-space:nowrap')}>
             <span style={{ ...css('width:7px;height:7px;border-radius:50%;animation:ccpulse 2.6s infinite;flex:none'), background: line.dot }} />
             {line.text}
           </div>
@@ -56,6 +57,7 @@ export default function Header({ view, sync, onHelp }) {
 
       {/* tabs */}
       <div
+        className="cc-tabs"
         style={css(
           'flex:none;display:flex;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.14);border-radius:11px;padding:3px;gap:2px;margin-left:8px'
         )}
@@ -89,6 +91,7 @@ export default function Header({ view, sync, onHelp }) {
 
       {/* search */}
       <div
+        className="cc-search"
         style={css(
           'flex:1;display:flex;align-items:center;gap:8px;padding:0 12px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.14);border-radius:11px;min-width:140px;height:40px'
         )}
@@ -167,6 +170,7 @@ export default function Header({ view, sync, onHelp }) {
       {/* current user + logout */}
       <div style={css('flex:none;display:flex;align-items:center;gap:8px')}>
         <span
+          className="cc-hide-mobile"
           style={css(
             "display:inline-flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:1px;height:40px;padding:0 13px;border-radius:11px;background:rgba(52,211,153,.14);border:1px solid rgba(52,211,153,.34);white-space:nowrap"
           )}

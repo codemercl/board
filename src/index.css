@@ -5,15 +5,26 @@
 body {
   margin: 0;
   height: 100vh;
+  height: 100dvh;
   overflow: hidden;
+  overflow-x: hidden;
   background: #f4f6f9;
   font-family: 'Onest', system-ui, -apple-system, sans-serif;
   color: #0f1b2d;
   -webkit-font-smoothing: antialiased;
+  text-size-adjust: 100%;
+  -webkit-text-size-adjust: 100%;
 }
 
 #root {
   height: 100vh;
+  height: 100dvh;
+}
+
+/* Full-height wrapper that respects the mobile dynamic viewport (address bar). */
+.cc-fullh {
+  height: 100vh;
+  height: 100dvh;
 }
 
 @keyframes ccpulse {
@@ -109,4 +120,117 @@ body {
 }
 .cc-notif:hover {
   background: #f7f9fc;
+}
+
+/* ============================================================
+   Mobile adaptation (phones / narrow tablets).
+   Inline styles win over stylesheet rules, so overrides here
+   use !important where they replace an inline value.
+   ============================================================ */
+@media (max-width: 768px) {
+  /* 16px inputs stop iOS from zooming the page on focus. */
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+
+  .cc-hide-mobile {
+    display: none !important;
+  }
+
+  /* ---- Header: reflow into stacked rows ---- */
+  .cc-header {
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+    padding: 10px 12px !important;
+  }
+  .cc-header .cc-tabs {
+    order: 5;
+    width: 100%;
+    margin-left: 0 !important;
+    overflow-x: auto;
+  }
+  .cc-header .cc-search {
+    order: 6;
+    flex: 1 1 100% !important;
+    min-width: 0 !important;
+  }
+
+  /* ---- Pulse bar: horizontal scroll, no wrap ---- */
+  .cc-pulse {
+    gap: 14px !important;
+    padding: 9px 12px !important;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .cc-pulse::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* ---- Board: swipeable, one full-width column at a time ---- */
+  .ccboard {
+    padding: 12px !important;
+    gap: 12px !important;
+    scroll-snap-type: x mandatory;
+    scroll-padding-left: 12px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .cc-col-open {
+    width: 86vw !important;
+    max-width: 340px;
+    scroll-snap-align: start;
+  }
+  .cc-card:hover {
+    transform: none;
+  }
+  .cc-card:active {
+    transform: scale(0.99);
+  }
+
+  /* ---- Side drawers → full-screen sheets ---- */
+  .cc-drawer {
+    top: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    width: auto !important;
+    max-height: none !important;
+    border-radius: 0 !important;
+    z-index: 40 !important;
+  }
+
+  /* ---- Users & permissions: table → stacked cards ---- */
+  .cc-users-page {
+    padding: 14px 12px 32px !important;
+  }
+  .cc-users-head {
+    display: none !important;
+  }
+  .cc-users-row {
+    display: flex !important;
+    flex-direction: column;
+    align-items: stretch !important;
+    gap: 8px;
+  }
+  .cc-users-actions {
+    justify-self: stretch !important;
+    justify-content: flex-start !important;
+  }
+  .cc-users-form-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* ---- Login & modal ---- */
+  .cc-login-form {
+    width: 100% !important;
+    max-width: 380px;
+    padding: 24px !important;
+  }
+  .cc-modal {
+    padding: 12px !important;
+  }
+  .cc-modal-panel {
+    max-height: 92dvh !important;
+  }
 }

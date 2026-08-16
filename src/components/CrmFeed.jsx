@@ -7,6 +7,7 @@ export default function CrmFeed({ view }) {
   return (
     <div
       data-screen-label="Лента CRM"
+      className="cc-drawer"
       style={css('position:absolute;top:16px;right:20px;width:346px;max-height:calc(100% - 32px);background:#fff;border:1px solid #e5ebf3;border-radius:16px;box-shadow:0 34px 64px -26px rgba(16,35,64,.5);display:flex;flex-direction:column;overflow:hidden;z-index:25')}
     >
       <div style={css('display:flex;align-items:center;gap:9px;padding:15px 16px;border-bottom:1px solid #f0f3f7')}>

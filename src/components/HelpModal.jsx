@@ -79,10 +79,12 @@ export default function HelpModal({ onClose }) {
   return (
     <div
       onMouseDown={onClose}
+      className="cc-modal"
       style={css('position:fixed;inset:0;z-index:70;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(11,23,40,.55);backdrop-filter:blur(3px)')}
     >
       <div
         onMouseDown={(e) => e.stopPropagation()}
+        className="cc-modal-panel"
         style={css('width:100%;max-width:720px;max-height:88vh;background:#fff;border-radius:20px;box-shadow:0 40px 90px -30px rgba(16,35,64,.6);display:flex;flex-direction:column;overflow:hidden')}
       >
         {/* header */}

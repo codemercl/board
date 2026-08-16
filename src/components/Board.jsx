@@ -223,6 +223,7 @@ function Column({ col, filterKey, dnd }) {
   return (
     <div
       {...dropHandlers}
+      className={col.isCollapsed ? undefined : 'cc-col-open'}
       style={{
         ...css('flex:0 0 auto;height:100%;display:flex;flex-direction:column;gap:10px;transition:width .25s ease;border-radius:14px'),
         width: col.width,

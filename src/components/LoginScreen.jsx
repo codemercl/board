@@ -9,9 +9,10 @@ export default function LoginScreen({ busy, error, onSubmit }) {
   const submit = (e) => { e.preventDefault(); if (!busy) onSubmit(user.trim(), password) }
 
   return (
-    <div style={css('height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#0f2138 0%,#19354f 55%,#1e3a5f 100%);padding:20px')}>
+    <div className="cc-fullh" style={css('display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#0f2138 0%,#19354f 55%,#1e3a5f 100%);padding:20px')}>
       <form
         onSubmit={submit}
+        className="cc-login-form"
         style={css('width:360px;background:#fff;border-radius:20px;box-shadow:0 40px 90px -30px rgba(3,12,26,.7);padding:30px;display:flex;flex-direction:column;gap:18px')}
       >
         <div style={css('display:flex;align-items:center;gap:12px')}>

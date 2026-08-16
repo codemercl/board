@@ -36,6 +36,7 @@ export default function PulseBar({ view }) {
   return (
     <div
       data-screen-label="Пульс дня"
+      className="cc-pulse"
       style={css('flex:none;display:flex;align-items:center;gap:22px;padding:11px 24px;background:#fff;border-bottom:1px solid #e8edf4;z-index:20')}
     >
       {stats.map((s) => (
@@ -141,9 +142,11 @@ export default function PulseBar({ view }) {
         </div>
       </div>
 
-      <div style={css('flex:1')} />
+      <div className="cc-hide-mobile" style={css('flex:1')} />
 
-      <Conversion conversion={conversion} />
+      <div className="cc-hide-mobile">
+        <Conversion conversion={conversion} />
+      </div>
     </div>
   )
 }

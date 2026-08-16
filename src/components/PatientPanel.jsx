@@ -21,6 +21,7 @@ export default function PatientPanel({ view }) {
   return (
     <div
       data-screen-label="Карточка пациента"
+      className="cc-drawer"
       style={css('position:absolute;top:16px;right:20px;bottom:16px;width:376px;background:#fff;border:1px solid #e2e9f2;border-radius:18px;box-shadow:0 40px 80px -30px rgba(16,35,64,.55);display:flex;flex-direction:column;overflow:hidden;z-index:26')}
     >
       {/* header */}

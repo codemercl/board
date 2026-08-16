@@ -133,7 +133,7 @@ export default function UsersAdmin({ view }) {
   const isAdminRole = form?.role === 'admin'
 
   return (
-    <div style={css('flex:1;min-height:0;overflow-y:auto;padding:22px 26px 40px;background:#f4f6f9')}>
+    <div className="cc-users-page" style={css('flex:1;min-height:0;overflow-y:auto;padding:22px 26px 40px;background:#f4f6f9')}>
       <div style={css('max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:18px')}>
         {/* header */}
         <div style={css('display:flex;align-items:center;gap:12px')}>
@@ -170,7 +170,7 @@ export default function UsersAdmin({ view }) {
           >
             <span style={css('font-size:15px;font-weight:700;color:#101d31')}>{form.id ? 'Редагувати акаунт' : 'Новий акаунт'}</span>
 
-            <div style={css('display:grid;grid-template-columns:1fr 1fr;gap:14px')}>
+            <div className="cc-users-form-grid" style={css('display:grid;grid-template-columns:1fr 1fr;gap:14px')}>
               <label style={css('display:flex;flex-direction:column;gap:6px')}>
                 <span style={labelCss}>Логін</span>
                 <input value={form.username} onChange={(e) => patch({ username: e.target.value })} autoComplete="off" style={inputCss} />
@@ -252,7 +252,7 @@ export default function UsersAdmin({ view }) {
 
         {/* list */}
         <div style={css('background:#fff;border:1px solid #e6ecf3;border-radius:16px;overflow:hidden')}>
-          <div style={css('display:grid;grid-template-columns:1.4fr 1fr 2fr .8fr auto;gap:12px;padding:13px 18px;background:#f8fafc;border-bottom:1px solid #eef2f7')}>
+          <div className="cc-users-head" style={css('display:grid;grid-template-columns:1.4fr 1fr 2fr .8fr auto;gap:12px;padding:13px 18px;background:#f8fafc;border-bottom:1px solid #eef2f7')}>
             {['Користувач', 'Роль', 'Колонки', 'Права', ''].map((h, i) => (
               <span key={i} style={css('font-size:11px;font-weight:700;color:#8a97a8;letter-spacing:.03em;text-transform:uppercase')}>{h}</span>
             ))}
@@ -265,7 +265,7 @@ export default function UsersAdmin({ view }) {
             users.map((u) => {
               const rb = roleBadge[u.role] || roleBadge.nurse
               return (
-                <div key={u.id} style={css('display:grid;grid-template-columns:1.4fr 1fr 2fr .8fr auto;gap:12px;align-items:center;padding:13px 18px;border-bottom:1px solid #f2f5f9')}>
+                <div key={u.id} className="cc-users-row" style={css('display:grid;grid-template-columns:1.4fr 1fr 2fr .8fr auto;gap:12px;align-items:center;padding:13px 18px;border-bottom:1px solid #f2f5f9')}>
                   <div style={css('display:flex;flex-direction:column;gap:2px;min-width:0')}>
                     <span style={css('font-size:13.5px;font-weight:600;color:#101d31;display:flex;align-items:center;gap:7px')}>
                       {u.displayName}
@@ -283,7 +283,7 @@ export default function UsersAdmin({ view }) {
                       ? <span style={css('color:#0d9488')}>Рух карток</span>
                       : <span style={css('color:#94a3b4')}>Тільки перегляд</span>}
                   </span>
-                  <div style={css('display:flex;gap:7px;justify-self:end')}>
+                  <div className="cc-users-actions" style={css('display:flex;gap:7px;justify-self:end')}>
                     <button onClick={() => startEdit(u)} title="Редагувати" style={css('width:32px;height:32px;border:1px solid #e2e9f2;border-radius:9px;background:#fff;color:#56667c;display:flex;align-items:center;justify-content:center;cursor:pointer')}>
                       <Icon id="ic-user" size={15} />
                     </button>

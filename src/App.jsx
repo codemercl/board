@@ -208,7 +208,7 @@ export default function App() {
     return (
       <>
         <IconDefs />
-        <div style={css('height:100vh;display:flex;align-items:center;justify-content:center;background:#f4f6f9')}>
+        <div className="cc-fullh" style={css('display:flex;align-items:center;justify-content:center;background:#f4f6f9')}>
           <span style={css('font-size:13px;color:#7c8aa0;font-weight:600')}>Завантаження…</span>
         </div>
       </>
@@ -228,7 +228,7 @@ export default function App() {
   return (
     <>
       <IconDefs />
-      <div style={css('position:relative;height:100vh;display:flex;flex-direction:column;overflow:hidden;background:#f4f6f9')}>
+      <div className="cc-fullh" style={css('position:relative;display:flex;flex-direction:column;overflow:hidden;background:#f4f6f9')}>
         <Header view={view} sync={sync} onHelp={() => setHelpOpen(true)} />
         {!onUsers && <PulseBar view={view} />}
 
