@@ -26,6 +26,8 @@ import { emitEvent } from './notify.js'
 
 const CB = { ready: 'rdy', postpone: 'pst', role: 'role', approve: 'apr' }
 const trim = (s) => String(s || '').trim()
+const trunc = (s, n = 22) => { const t = String(s || ''); return t.length > n ? t.slice(0, n - 1) + '…' : t }
+const OVERSEER_ROLES = new Set(['head_doctor', 'kerivnyk'])
 // "2026-07-28T14:30:00Z" → "28.07 о 14:30" (local server time).
 const formatDeadline = (iso) => {
   const d = new Date(iso)
@@ -111,6 +113,61 @@ export function createBot(deps) {
     inline_keyboard: BOT_ROLES.map((r) => [{ text: r.label, callback_data: `${CB.role}:${r.key}` }]),
   })
 
+  // /my — a лікар's own plans as a tappable list. Handy when they have many:
+  // one row per pending plan with «✅» (sign off) and «⏸» (postpone) — the
+  // buttons reuse the normal rdy:/pst: callbacks (ask for a comment).
+  async function myPlans(chatId) {
+    const id = String(chatId)
+    const cards = await listPlanCards()
+    const mine = cards.filter((c) => (c.planReview?.responsibles || []).some((r) => String(r.id) === id))
+    if (!mine.length) return send(chatId, '📋 У вас немає призначених планів зараз.')
+    const pending = mine.filter((c) => c.planReview?.signoffs?.[id]?.status !== 'ready')
+    const readyN = mine.length - pending.length
+    let text = `📋 Ваші плани: ${mine.length} · ✅ ${readyN} готово · ⏳ ${pending.length} в роботі`
+    if (!pending.length) return send(chatId, text + '\nУсі підтверджені 👍')
+    const shown = pending.slice(0, 25)
+    const kb = shown.map((c) => ([
+      { text: `✅ ${trunc(c.name)}`, callback_data: `${CB.ready}:${c.id}` },
+      { text: '⏸', callback_data: `${CB.postpone}:${c.id}` },
+    ]))
+    if (pending.length > shown.length) text += `\n(показано ${shown.length} з ${pending.length})`
+    return send(chatId, text + '\n\nОберіть план — ✅ підтвердити або ⏸ відкласти:', { reply_markup: { inline_keyboard: kb } })
+  }
+
+  // /all — overseer view: every лікар with their plan load. Shows who has no
+  // tasks and who has how many (готово / в роботі), with pending patient names.
+  async function doctorsOverview() {
+    const cards = await listPlanCards()
+    const docs = await getBotStaffByRole('doctor')
+    const stat = new Map() // id -> { name, total, ready, pend: [names] }
+    for (const d of docs) stat.set(String(d.chat_id), { name: d.name, total: 0, ready: 0, pend: [] })
+    for (const c of cards) {
+      const pr = c.planReview || {}
+      for (const r of (pr.responsibles || [])) {
+        const key = String(r.id)
+        if (!stat.has(key)) stat.set(key, { name: r.name, total: 0, ready: 0, pend: [] })
+        const s = stat.get(key)
+        s.total++
+        if (pr.signoffs?.[key]?.status === 'ready') s.ready++
+        else s.pend.push(c.name)
+      }
+    }
+    const all = [...stat.values()]
+    if (!all.length) return 'Ще немає зареєстрованих лікарів. Хай зайдуть у бота → /start → «Лікар».'
+    const withPlans = all.filter((s) => s.total > 0).sort((a, b) => b.pend.length - a.pend.length || b.total - a.total)
+    const free = all.filter((s) => s.total === 0)
+    let text = `👥 Статус лікарів (${all.length})`
+    if (withPlans.length) {
+      text += '\n\n📋 З планами:'
+      for (const s of withPlans) {
+        text += `\n• ${s.name} — ${s.total} · ✅${s.ready} / ⏳${s.pend.length}`
+        if (s.pend.length) text += `\n   ⏳ ${s.pend.slice(0, 6).map((n) => trunc(n, 18)).join(', ')}${s.pend.length > 6 ? ` +${s.pend.length - 6}` : ''}`
+      }
+    }
+    if (free.length) text += '\n\n🟢 Без задач:\n' + free.map((s) => `• ${s.name}`).join('\n')
+    return text
+  }
+
   async function handleUpdate(update) {
     try {
       if (update.callback_query) return await onCallback(update.callback_query)
@@ -135,13 +192,41 @@ export function createBot(deps) {
       return send(chatId, 'Вітаю! Оберіть вашу роль:', { reply_markup: roleButtons() })
     }
 
+    // Commands work regardless of any pending sign-off/postpone conversation.
+    if (/^\/(my|plans)\b/.test(text)) {
+      await clearPending(chatId)
+      return myPlans(chatId)
+    }
+    if (/^\/all\b/.test(text)) {
+      await clearPending(chatId)
+      const staff = await getBotStaff(chatId)
+      if (!OVERSEER_ROLES.has(staff?.role)) {
+        return send(chatId, 'Команда /all доступна лише головному лікарю або керівнику.')
+      }
+      return send(chatId, await doctorsOverview())
+    }
+    if (/^\/help\b/.test(text)) {
+      await clearPending(chatId)
+      const staff = await getBotStaff(chatId)
+      let t = 'Команди:\n/start — реєстрація / зміна ролі'
+      if (staff?.role === 'doctor') t += '\n/my — усі ваші плани з кнопками'
+      if (OVERSEER_ROLES.has(staff?.role)) t += '\n/all — статус усіх лікарів'
+      t += '\n/help — ця довідка'
+      return send(chatId, t)
+    }
+
     if (state?.mode === 'signoff') {
       await clearPending(chatId)
       const staff = await getBotStaff(chatId)
       const name = staff?.name || `chat ${chatId}`
       const review = await addPlanSignoff(state.patientId, chatId, { comment: text, name })
       emitEvent({ type: 'plan_signoff', text: `${name} підтвердив(ла) план — ${state.patientName || state.patientId}`, sub: text.slice(0, 120), patientId: state.patientId, targets: review.responsibles.map((r) => r.id) })
-      await send(chatId, '✅ Дякую, план позначено готовим.')
+      // Show how many of the doctor's own plans still need work (they may have many).
+      const cards = await listPlanCards()
+      const left = cards.filter((c) => c.id !== state.patientId
+        && (c.planReview?.responsibles || []).some((r) => String(r.id) === chatId)
+        && c.planReview?.signoffs?.[chatId]?.status !== 'ready').length
+      await send(chatId, `✅ Дякую, план позначено готовим.\n${left > 0 ? `Залишилось ваших планів у роботі: ${left}. /my — показати всі.` : 'Це був останній ваш план 👍'}`)
       await maybeAnnounceReady(state.patientId, state.patientName, review)
       return
     }
@@ -174,8 +259,10 @@ export function createBot(deps) {
       const tgName = trim([cb.from?.first_name, cb.from?.last_name].filter(Boolean).join(' ')) || username || undefined
       await upsertBotStaff({ chatId, role: arg, username, name: tgName })
       const extra = arg === 'doctor'
-        ? ' Коли вам призначать план — надішлю сюди кнопки «Готово»/«Відкласти».'
-        : ' Ви отримуватимете сповіщення по планах відповідно до ролі.'
+        ? ' Коли вам призначать план — надішлю сюди кнопки «Готово»/«Відкласти». /my — усі ваші плани.'
+        : OVERSEER_ROLES.has(arg)
+          ? ' Ви отримуватимете підсумки по планах. /all — статус усіх лікарів.'
+          : ' Ви отримуватимете сповіщення по планах відповідно до ролі.'
       return send(chatId, `Готово! Ваша роль: ${roleLabel(arg)}.${extra}`)
     }
 
@@ -220,7 +307,7 @@ export function createBot(deps) {
     const termLine = deadlineLine(opts.deadlineAt)
     const visitLine = opts.visit ? `\n📅 Візит: ${opts.visit}` : ''
     for (const r of list) {
-      await send(String(r.id), `🦷 На вас призначено план лікування:\n${patientName}${visitLine}${termLine}\n\nСкладіть план і натисніть «✅ План готовий».`, { reply_markup: buttons(patientId) })
+      await send(String(r.id), `🦷 На вас призначено план лікування:\n${patientName}${visitLine}${termLine}\n\nСкладіть план і натисніть «✅ План готовий».\n(/my — усі ваші плани)`, { reply_markup: buttons(patientId) })
     }
     const names = list.map((r) => r.name).join(', ')
     const heads = await getBotStaffByRole(readyRole)
@@ -333,7 +420,7 @@ export function createBot(deps) {
     return { waiting, overdue: overdue.length, postponed: postponed.length, awaitingConfirm: awaitingConfirm.length, noResp: noResp.length, sent: n }
   }
 
-  return { handleUpdate, notifyPlanAssigned, sweep, digest }
+  return { handleUpdate, notifyPlanAssigned, sweep, digest, myPlans, doctorsOverview }
 }
 
 // Current hour (0..23) in the clinic timezone, for quiet-hours checks.
@@ -374,6 +461,20 @@ async function tgAnswer(id, text) {
   }).catch(() => {})
 }
 
+// Populate the Telegram "/" command menu (best-effort, idempotent).
+async function tgSetCommands() {
+  if (config.notifyDryRun || !config.telegramBotToken) return
+  await fetch(TG('setMyCommands'), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ commands: [
+      { command: 'start', description: 'Реєстрація / зміна ролі' },
+      { command: 'my', description: 'Мої плани лікування' },
+      { command: 'all', description: 'Статус усіх лікарів (головлікар)' },
+      { command: 'help', description: 'Довідка по командах' },
+    ] }),
+  }).catch(() => {})
+}
+
 let realBot = null
 
 // The live bot instance (or null when no token / not started) — lets the API
@@ -399,6 +500,7 @@ export function initBot(boardDeps) {
     issueRole: config.planIssueRole,
     isQuietHours: inQuietHours,
   })
+  tgSetCommands() // populate the "/" command menu (best-effort)
   return realBot
 }
 

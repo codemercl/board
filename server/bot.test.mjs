@@ -188,6 +188,28 @@ async function run() {
   await bot.digest()
   ok(/під контролем/i.test(lastTo('5001')?.text || ''), 'all-clear digest wording when no problems')
 
+  console.log('13) /my lists a лікар\'s pending plans with per-plan buttons')
+  planCards = [
+    { id: 'm1', name: 'Пацієнт А', planReview: { responsibles: [{ id: '1001', name: 'Андрій' }], signoffs: {} } },
+    { id: 'm2', name: 'Пацієнт Б', planReview: { responsibles: [{ id: '1001', name: 'Андрій' }, { id: '1002', name: 'Катерина' }], signoffs: { 1001: { status: 'ready' } } } },
+    { id: 'm3', name: 'Пацієнт В', planReview: { responsibles: [{ id: '1002', name: 'Катерина' }], signoffs: {} } },
+  ]
+  sent.length = 0
+  await bot.handleUpdate(msg('1001', '/my'))
+  const myMsg = lastTo('1001')
+  const rows = myMsg?.opts?.reply_markup?.inline_keyboard || []
+  ok(/Ваші плани/.test(myMsg?.text || ''), '/my sends a summary of the doctor\'s plans')
+  ok(rows.length === 1 && rows[0][0].callback_data === 'rdy:m1', '/my shows only 1001\'s pending plan (m1), not the ready one or others')
+
+  console.log('14) /all overview for head doctor; blocked for a лікар')
+  sent.length = 0
+  await bot.handleUpdate(msg('5001', '/all'))
+  const allMsg = lastTo('5001')?.text || ''
+  ok(/Статус лікарів/.test(allMsg) && allMsg.includes('Андрій Федірко') && allMsg.includes('Катерина Романова'), '/all lists лікарі with their load')
+  sent.length = 0
+  await bot.handleUpdate(msg('1001', '/all'))
+  ok(/лише головному/i.test(lastTo('1001')?.text || ''), '/all is blocked for a non-overseer')
+
   console.log(`\nAll ${passed} assertions passed ✅`)
 }
 
