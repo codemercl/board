@@ -80,12 +80,12 @@ async function getSnapshot(force = false) {
 // Synthetic test card (not from Clinic Cards) so the Telegram bot flow can be
 // exercised end-to-end: it lands in «Очікує план» with no responsibles, ready
 // to assign. Disable by setting TEST_CARD=off.
-const TEST_SEED = {
-  id: 'test-plan-1',
-  name: 'Тест Пацієнт (бот)',
+const mkTestSeed = (n) => ({
+  id: `test-plan-${n}`,
+  name: `Тест Пацієнт ${n} (бот)`,
   phone: '+380 99 123-45-67',
   service: 'Тестовий план лікування',
-  comment: 'Тестова картка — перевірка бота',
+  comment: `Тестова картка ${n} — перевірка бота`,
   dueVisitAt: null,
   dueVisitNote: '',
   doctor: '',
@@ -98,9 +98,10 @@ const TEST_SEED = {
   defaultStage: 'plan_wait',
   createdAt: null,
   slaOverride: null,
-}
+})
+const TEST_SEEDS = [mkTestSeed(1), mkTestSeed(2), mkTestSeed(3)]
 const withTestSeeds = (seeds) =>
-  String(process.env.TEST_CARD).toLowerCase() === 'off' ? seeds : [TEST_SEED, ...seeds]
+  String(process.env.TEST_CARD).toLowerCase() === 'off' ? seeds : [...TEST_SEEDS, ...seeds]
 
 export async function getBoard(force = false) {
   const snap = await getSnapshot(force)
