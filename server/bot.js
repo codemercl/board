@@ -243,7 +243,19 @@ export function createBot(deps) {
       return
     }
 
-    // No active conversation → gentle hint.
+    // No active conversation. A common mistake: a лікар types "готово" as plain
+    // text instead of tapping ✅. Guide them and show the tappable list.
+    const who = await getBotStaff(chatId)
+    if (who?.role === 'doctor') {
+      const cards = await listPlanCards()
+      const pending = cards.filter((c) => (c.planReview?.responsibles || []).some((r) => String(r.id) === chatId)
+        && c.planReview?.signoffs?.[chatId]?.status !== 'ready')
+      if (pending.length) {
+        await send(chatId, '☝️ Текст «готово» бот не зараховує. Щоб підтвердити план — натисніть кнопку ✅ біля потрібного пацієнта у списку нижче:')
+        return myPlans(chatId)
+      }
+      return send(chatId, 'У вас зараз немає планів у роботі. /my — перевірити список.')
+    }
     return send(chatId, 'Надішліть /start, щоб обрати роль і отримувати плани.')
   }
 

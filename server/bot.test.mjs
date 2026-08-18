@@ -210,6 +210,18 @@ async function run() {
   await bot.handleUpdate(msg('1001', '/all'))
   ok(/лише головному/i.test(lastTo('1001')?.text || ''), '/all is blocked for a non-overseer')
 
+  console.log('15) Plain "готово" (no button tapped) → nudge + tappable list, nothing auto-confirmed')
+  planCards = [
+    { id: 'm1', name: 'Пацієнт А', planReview: { responsibles: [{ id: '1001', name: 'Андрій' }], signoffs: {} } },
+    { id: 'm2', name: 'Пацієнт Б', planReview: { responsibles: [{ id: '1001', name: 'Андрій' }], signoffs: {} } },
+  ]
+  pending.delete('1001')
+  sent.length = 0
+  await bot.handleUpdate(msg('1001', 'готово'))
+  const texts = sent.map((s) => s.text).join(' | ')
+  ok(/не зараховує/.test(texts), 'plain "готово" is explained as not counted')
+  ok(sent.some((s) => (s.opts?.reply_markup?.inline_keyboard || []).some((row) => row[0]?.callback_data === 'rdy:m1')), 'and the tappable /my list is shown')
+
   console.log(`\nAll ${passed} assertions passed ✅`)
 }
 
