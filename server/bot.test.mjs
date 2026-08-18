@@ -17,6 +17,7 @@ const sent = []
 const events = []
 const names = { p1: 'Тест Пацієнт', p2: 'Другий Пацієнт', p3: 'Третій' }
 let planCards = []
+let reviewCards = [] // plan_wait + plan, with responsibles[].ready (mapper shape)
 
 const seedReview = (id, responsibles) => reviews.set(id, { responsibles, signoffs: {}, postpone: null, notified: {} })
 
@@ -60,6 +61,7 @@ const deps = {
   clearPending: async (chatId) => { pending.delete(String(chatId)) },
   getPatientName: async (id) => names[id] || null,
   listPlanCards: async () => planCards,
+  listReviewCards: async () => reviewCards,
   emitEvent: (e) => { events.push(e) },
   readyRole: 'head_doctor',
   issueRole: 'head_doctor',
@@ -188,33 +190,44 @@ async function run() {
   await bot.digest()
   ok(/під контролем/i.test(lastTo('5001')?.text || ''), 'all-clear digest wording when no problems')
 
-  console.log('13) /my lists a лікар\'s pending plans with per-plan buttons')
-  planCards = [
-    { id: 'm1', name: 'Пацієнт А', planReview: { responsibles: [{ id: '1001', name: 'Андрій' }], signoffs: {} } },
-    { id: 'm2', name: 'Пацієнт Б', planReview: { responsibles: [{ id: '1001', name: 'Андрій' }, { id: '1002', name: 'Катерина' }], signoffs: { 1001: { status: 'ready' } } } },
-    { id: 'm3', name: 'Пацієнт В', planReview: { responsibles: [{ id: '1002', name: 'Катерина' }], signoffs: {} } },
+  // Review cards use the mapper shape: responsibles[].ready + a stage.
+  // m1: 1001 to-write (plan_wait, not ready)
+  // m2: 1001 written & awaiting (plan_wait, 1001 ready, 1002 not → allReady false)
+  // m3: not 1001's
+  // m4: 1001 confirmed (plan stage)
+  // m5: plan_wait, allReady → awaits head-doctor confirmation
+  reviewCards = [
+    { id: 'm1', name: 'Пацієнт А', stage: 'plan_wait', planReview: { responsibles: [{ id: '1001', name: 'Андрій', ready: false }], allReady: false } },
+    { id: 'm2', name: 'Пацієнт Б', stage: 'plan_wait', planReview: { responsibles: [{ id: '1001', name: 'Андрій', ready: true }, { id: '1002', name: 'Катерина', ready: false }], allReady: false } },
+    { id: 'm3', name: 'Пацієнт В', stage: 'plan_wait', planReview: { responsibles: [{ id: '1002', name: 'Катерина', ready: false }], allReady: false } },
+    { id: 'm4', name: 'Пацієнт Г', stage: 'plan', planReview: { responsibles: [{ id: '1001', name: 'Андрій', ready: true }], allReady: true } },
+    { id: 'm5', name: 'Пацієнт Д', stage: 'plan_wait', planReview: { responsibles: [{ id: '1002', name: 'Катерина', ready: true }], allReady: true } },
   ]
+
+  console.log('13) /my splits into to-write (buttons) / awaiting / confirmed')
   sent.length = 0
   await bot.handleUpdate(msg('1001', '/my'))
   const myMsg = lastTo('1001')
   const rows = myMsg?.opts?.reply_markup?.inline_keyboard || []
-  ok(/Ваші плани/.test(myMsg?.text || ''), '/my sends a summary of the doctor\'s plans')
-  ok(rows.length === 1 && rows[0][0].callback_data === 'rdy:m1', '/my shows only 1001\'s pending plan (m1), not the ready one or others')
+  ok(/написати/.test(myMsg?.text || '') && /підтвердж/i.test(myMsg?.text || ''), '/my shows the category summary')
+  ok(rows.length === 1 && rows[0][0].callback_data === 'rdy:m1', '/my gives a button only for the to-write plan (m1)')
+  ok(/чекають підтвердження[\s\S]*Пацієнт Б/.test(myMsg?.text || ''), '/my lists m2 as written & awaiting confirmation')
+  ok(/Підтверджені[\s\S]*Пацієнт Г/.test(myMsg?.text || ''), '/my lists m4 as confirmed')
 
-  console.log('14) /all overview for head doctor; blocked for a лікар')
+  console.log('14) /all: per-doctor load + «Підтвердити» buttons for awaiting plans')
   sent.length = 0
   await bot.handleUpdate(msg('5001', '/all'))
-  const allMsg = lastTo('5001')?.text || ''
-  ok(/Статус лікарів/.test(allMsg) && allMsg.includes('Андрій Федірко') && allMsg.includes('Катерина Романова'), '/all lists лікарі with their load')
+  const allM = lastTo('5001')
+  const allText = allM?.text || ''
+  ok(/Статус лікарів/.test(allText) && allText.includes('Андрій Федірко') && allText.includes('Катерина Романова'), '/all lists лікарі with their load')
+  ok(/Чекають ВАШОГО підтвердження[\s\S]*Пацієнт Д/.test(allText), '/all shows plans awaiting head-doctor confirmation (m5)')
+  const allKb = allM?.opts?.reply_markup?.inline_keyboard || []
+  ok(allKb.some((row) => row[0]?.callback_data === 'apr:m5'), '/all includes a Підтвердити button (apr:m5) for the awaiting plan')
   sent.length = 0
   await bot.handleUpdate(msg('1001', '/all'))
   ok(/лише головному/i.test(lastTo('1001')?.text || ''), '/all is blocked for a non-overseer')
 
-  console.log('15) Plain "готово" (no button tapped) → nudge + tappable list, nothing auto-confirmed')
-  planCards = [
-    { id: 'm1', name: 'Пацієнт А', planReview: { responsibles: [{ id: '1001', name: 'Андрій' }], signoffs: {} } },
-    { id: 'm2', name: 'Пацієнт Б', planReview: { responsibles: [{ id: '1001', name: 'Андрій' }], signoffs: {} } },
-  ]
+  console.log('15) Plain "готово" (no button) → strict nudge + tappable list, nothing confirmed')
   pending.delete('1001')
   sent.length = 0
   await bot.handleUpdate(msg('1001', 'готово'))

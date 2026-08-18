@@ -73,6 +73,8 @@ export function createBot(deps) {
     readyRole, issueRole,
     isQuietHours = () => false,
   } = deps
+  // Cards for /my and /all (plan_wait + plan). Falls back to listPlanCards.
+  const listReviewCards = deps.listReviewCards || listPlanCards
 
   // Short "залишилось 4 год" / "прострочено на 2 год" from a deadline ISO.
   const deadlineLeftLabel = (iso) => {
@@ -113,59 +115,75 @@ export function createBot(deps) {
     inline_keyboard: BOT_ROLES.map((r) => [{ text: r.label, callback_data: `${CB.role}:${r.key}` }]),
   })
 
-  // /my — a лікар's own plans as a tappable list. Handy when they have many:
-  // one row per pending plan with «✅» (sign off) and «⏸» (postpone) — the
-  // buttons reuse the normal rdy:/pst: callbacks (ask for a comment).
+  // Which responsible entry is this chat, and did they sign off?
+  const myEntry = (card, id) => (card.planReview?.responsibles || []).find((r) => String(r.id) === String(id))
+
+  // /my — a лікар's own plans, split into: ✍️ треба написати (tappable ✅/⏸),
+  // 📝 написані й чекають підтвердження головлікаря, ✅ підтверджені.
   async function myPlans(chatId) {
     const id = String(chatId)
-    const cards = await listPlanCards()
-    const mine = cards.filter((c) => (c.planReview?.responsibles || []).some((r) => String(r.id) === id))
+    const cards = await listReviewCards()
+    const mine = cards.filter((c) => myEntry(c, id))
     if (!mine.length) return send(chatId, '📋 У вас немає призначених планів зараз.')
-    const pending = mine.filter((c) => c.planReview?.signoffs?.[id]?.status !== 'ready')
-    const readyN = mine.length - pending.length
-    let text = `📋 Ваші плани: ${mine.length} · ✅ ${readyN} готово · ⏳ ${pending.length} в роботі`
-    if (!pending.length) return send(chatId, text + '\nУсі підтверджені 👍')
-    const shown = pending.slice(0, 25)
-    const kb = shown.map((c) => ([
+    const toWrite = mine.filter((c) => c.stage === 'plan_wait' && !myEntry(c, id)?.ready)
+    const awaiting = mine.filter((c) => c.stage === 'plan_wait' && myEntry(c, id)?.ready)
+    const confirmed = mine.filter((c) => c.stage === 'plan')
+    let text = `📋 Ваші плани: ✍️ ${toWrite.length} написати · 📝 ${awaiting.length} чекають підтвердження · ✅ ${confirmed.length} підтверджено`
+    if (awaiting.length) text += '\n\n📝 Написані, чекають підтвердження головлікаря:\n' + awaiting.slice(0, 15).map((c) => `• ${trunc(c.name)}`).join('\n')
+    if (confirmed.length) text += '\n\n✅ Підтверджені:\n' + confirmed.slice(0, 10).map((c) => `• ${trunc(c.name)}`).join('\n') + (confirmed.length > 10 ? `\n… +${confirmed.length - 10}` : '')
+    if (!toWrite.length) return send(chatId, text + '\n\n👍 Немає планів, які треба написати.')
+    const kb = toWrite.slice(0, 25).map((c) => ([
       { text: `✅ ${trunc(c.name)}`, callback_data: `${CB.ready}:${c.id}` },
       { text: '⏸', callback_data: `${CB.postpone}:${c.id}` },
     ]))
-    if (pending.length > shown.length) text += `\n(показано ${shown.length} з ${pending.length})`
-    return send(chatId, text + '\n\nОберіть план — ✅ підтвердити або ⏸ відкласти:', { reply_markup: { inline_keyboard: kb } })
+    return send(chatId, text + '\n\n✍️ Треба написати — тисніть ✅ (готовий) або ⏸ (відкласти):', { reply_markup: { inline_keyboard: kb } })
   }
 
-  // /all — overseer view: every лікар with their plan load. Shows who has no
-  // tasks and who has how many (готово / в роботі), with pending patient names.
+  // /all — overseer view. Per лікар: ✍️ до написання / 📝 чекають підтвердження /
+  // ✅ підтверджено, plus a section of plans awaiting THIS person's confirmation
+  // with a «Підтвердити» button each (apr: callback → moves card to «plan»).
+  // Returns { text, keyboard }.
   async function doctorsOverview() {
-    const cards = await listPlanCards()
+    const cards = await listReviewCards()
     const docs = await getBotStaffByRole('doctor')
-    const stat = new Map() // id -> { name, total, ready, pend: [names] }
-    for (const d of docs) stat.set(String(d.chat_id), { name: d.name, total: 0, ready: 0, pend: [] })
+    const stat = new Map() // id -> { name, toWrite:[], awaiting:[], confirmed }
+    for (const d of docs) stat.set(String(d.chat_id), { name: d.name, toWrite: [], awaiting: [], confirmed: 0 })
+    const awaitHead = [] // plan_wait && allReady → ready for head-doctor approval
     for (const c of cards) {
       const pr = c.planReview || {}
+      if (c.stage === 'plan_wait' && pr.allReady) {
+        awaitHead.push({ id: c.id, name: c.name, docs: (pr.responsibles || []).map((r) => r.name).join(', ') })
+      }
       for (const r of (pr.responsibles || [])) {
         const key = String(r.id)
-        if (!stat.has(key)) stat.set(key, { name: r.name, total: 0, ready: 0, pend: [] })
+        if (!stat.has(key)) stat.set(key, { name: r.name, toWrite: [], awaiting: [], confirmed: 0 })
         const s = stat.get(key)
-        s.total++
-        if (pr.signoffs?.[key]?.status === 'ready') s.ready++
-        else s.pend.push(c.name)
+        if (c.stage === 'plan') s.confirmed++
+        else if (r.ready) s.awaiting.push(c.name)
+        else s.toWrite.push(c.name)
       }
     }
     const all = [...stat.values()]
-    if (!all.length) return 'Ще немає зареєстрованих лікарів. Хай зайдуть у бота → /start → «Лікар».'
-    const withPlans = all.filter((s) => s.total > 0).sort((a, b) => b.pend.length - a.pend.length || b.total - a.total)
-    const free = all.filter((s) => s.total === 0)
-    let text = `👥 Статус лікарів (${all.length})`
+    if (!all.length) return { text: 'Ще немає зареєстрованих лікарів. Хай зайдуть у бота → /start → «Лікар».', keyboard: null }
+    let text = `👥 Статус лікарів (${all.length})\nЛегенда: ✍️ треба написати · 📝 чекає підтвердження · ✅ підтверджено`
+    if (awaitHead.length) {
+      text += `\n\n🔔 Чекають ВАШОГО підтвердження (${awaitHead.length}):\n` + awaitHead.slice(0, 15).map((a) => `• ${trunc(a.name)} — ${a.docs}`).join('\n')
+    }
+    const withPlans = all.filter((s) => s.toWrite.length || s.awaiting.length || s.confirmed)
+      .sort((a, b) => (b.toWrite.length + b.awaiting.length) - (a.toWrite.length + a.awaiting.length))
+    const free = all.filter((s) => !s.toWrite.length && !s.awaiting.length && !s.confirmed)
     if (withPlans.length) {
-      text += '\n\n📋 З планами:'
+      text += '\n\n📋 По лікарях:'
       for (const s of withPlans) {
-        text += `\n• ${s.name} — ${s.total} · ✅${s.ready} / ⏳${s.pend.length}`
-        if (s.pend.length) text += `\n   ⏳ ${s.pend.slice(0, 6).map((n) => trunc(n, 18)).join(', ')}${s.pend.length > 6 ? ` +${s.pend.length - 6}` : ''}`
+        text += `\n• ${s.name} — ✍️${s.toWrite.length} / 📝${s.awaiting.length} / ✅${s.confirmed}`
+        if (s.toWrite.length) text += `\n   ✍️ ${s.toWrite.slice(0, 5).map((n) => trunc(n, 16)).join(', ')}${s.toWrite.length > 5 ? ` +${s.toWrite.length - 5}` : ''}`
       }
     }
     if (free.length) text += '\n\n🟢 Без задач:\n' + free.map((s) => `• ${s.name}`).join('\n')
-    return text
+    const keyboard = awaitHead.length
+      ? awaitHead.slice(0, 25).map((a) => ([{ text: `✅ Підтвердити: ${trunc(a.name)}`, callback_data: `${CB.approve}:${a.id}` }]))
+      : null
+    return { text, keyboard }
   }
 
   async function handleUpdate(update) {
@@ -203,7 +221,8 @@ export function createBot(deps) {
       if (!OVERSEER_ROLES.has(staff?.role)) {
         return send(chatId, 'Команда /all доступна лише головному лікарю або керівнику.')
       }
-      return send(chatId, await doctorsOverview())
+      const ov = await doctorsOverview()
+      return send(chatId, ov.text, ov.keyboard ? { reply_markup: { inline_keyboard: ov.keyboard } } : undefined)
     }
     if (/^\/help\b/.test(text)) {
       await clearPending(chatId)
@@ -221,12 +240,11 @@ export function createBot(deps) {
       const name = staff?.name || `chat ${chatId}`
       const review = await addPlanSignoff(state.patientId, chatId, { comment: text, name })
       emitEvent({ type: 'plan_signoff', text: `${name} підтвердив(ла) план — ${state.patientName || state.patientId}`, sub: text.slice(0, 120), patientId: state.patientId, targets: review.responsibles.map((r) => r.id) })
-      // Show how many of the doctor's own plans still need work (they may have many).
-      const cards = await listPlanCards()
-      const left = cards.filter((c) => c.id !== state.patientId
-        && (c.planReview?.responsibles || []).some((r) => String(r.id) === chatId)
-        && c.planReview?.signoffs?.[chatId]?.status !== 'ready').length
-      await send(chatId, `✅ Дякую, план позначено готовим.\n${left > 0 ? `Залишилось ваших планів у роботі: ${left}. /my — показати всі.` : 'Це був останній ваш план 👍'}`)
+      // Show how many of the doctor's own plans still need writing (may be many).
+      const cards = await listReviewCards()
+      const left = cards.filter((c) => c.stage === 'plan_wait'
+        && (c.planReview?.responsibles || []).some((r) => String(r.id) === chatId && !r.ready)).length
+      await send(chatId, `✅ Дякую, план позначено готовим.\n${left > 0 ? `Залишилось написати планів: ${left}. /my — показати всі.` : 'Це був останній ваш план 👍'}`)
       await maybeAnnounceReady(state.patientId, state.patientName, review)
       return
     }
@@ -243,20 +261,22 @@ export function createBot(deps) {
       return
     }
 
-    // No active conversation. A common mistake: a лікар types "готово" as plain
-    // text instead of tapping ✅. Guide them and show the tappable list.
+    // No active conversation. The bot is button-driven: free text is accepted
+    // ONLY as a comment right after tapping ✅ / ⏸. Anything else → explain and
+    // point to the buttons (a лікар gets the tappable /my list).
     const who = await getBotStaff(chatId)
-    if (who?.role === 'doctor') {
-      const cards = await listPlanCards()
-      const pending = cards.filter((c) => (c.planReview?.responsibles || []).some((r) => String(r.id) === chatId)
-        && c.planReview?.signoffs?.[chatId]?.status !== 'ready')
-      if (pending.length) {
-        await send(chatId, '☝️ Текст «готово» бот не зараховує. Щоб підтвердити план — натисніть кнопку ✅ біля потрібного пацієнта у списку нижче:')
-        return myPlans(chatId)
-      }
-      return send(chatId, 'У вас зараз немає планів у роботі. /my — перевірити список.')
+    if (!who || !isBotRole(who.role)) {
+      await send(chatId, '⚠️ Я приймаю лише натискання кнопок. Оберіть вашу роль:', { reply_markup: roleButtons() })
+      return
     }
-    return send(chatId, 'Надішліть /start, щоб обрати роль і отримувати плани.')
+    if (who.role === 'doctor') {
+      await send(chatId, '☝️ Читайте підказки: план підтверджується кнопкою ✅ (текст бот не зараховує). Текст — лише коментар після натискання ✅/⏸. Ось ваші плани:')
+      return myPlans(chatId)
+    }
+    if (OVERSEER_ROLES.has(who.role)) {
+      return send(chatId, '⚠️ Я працюю кнопками, не текстом.\n/all — статус лікарів і підтвердження\n/help — довідка')
+    }
+    return send(chatId, '⚠️ Використовуйте кнопки та команди: /help')
   }
 
   async function onCallback(cb) {
@@ -507,6 +527,7 @@ export function initBot(boardDeps) {
     getPending: getBotState, setPending: setBotState, clearPending: clearBotState,
     getPatientName: boardDeps.getPatientName,
     listPlanCards: boardDeps.listPlanCards,
+    listReviewCards: boardDeps.listReviewCards,
     emitEvent,
     readyRole: config.planReadyRole,
     issueRole: config.planIssueRole,
