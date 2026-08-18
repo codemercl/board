@@ -100,8 +100,9 @@ const mkTestSeed = (n) => ({
   slaOverride: null,
 })
 const TEST_SEEDS = [mkTestSeed(1), mkTestSeed(2), mkTestSeed(3)]
-const withTestSeeds = (seeds) =>
-  String(process.env.TEST_CARD).toLowerCase() === 'off' ? seeds : [...TEST_SEEDS, ...seeds]
+// Off by default — set TEST_CARD=1 (or true/on) to inject the test cards.
+const TEST_CARDS_ON = ['1', 'true', 'on', 'yes'].includes(String(process.env.TEST_CARD).toLowerCase())
+const withTestSeeds = (seeds) => (TEST_CARDS_ON ? [...TEST_SEEDS, ...seeds] : seeds)
 
 export async function getBoard(force = false) {
   const snap = await getSnapshot(force)
