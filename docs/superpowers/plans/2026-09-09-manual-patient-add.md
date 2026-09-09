@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Адмін знаходить будь-якого пацієнта Clinic Cards — включно із закритим півроку тому — і ставить його у вибрану колонку дошки, після чого картка живе за звичайними правилами.
+**Goal:** Адмін натискає «+» у шапці колонки «Очікує план лікування», шукає по всій базі Clinic Cards давнього пацієнта, якого на дошці вже не видно, — і картка одразу зʼявляється в цій колонці, звідки працює наявний потік призначення лікарів і бота.
 
 **Architecture:** Знімок Clinic Cards отримує два додаткові виходи — `closedSeeds` (закриті, повна форма) і `directory` (усі, стисло, для пошуку). Нова колонка `positions.manual` вмикає домішування закритого пацієнта в дошку і робить якорем 30-денного вікна `entered_at` замість дати створення. Пошук — по кешованому довіднику, без додаткових звернень до CRM.
 
@@ -35,10 +35,10 @@
 | `package.json` | скрипт `test` | Modify |
 | `src/api.js` | `searchPatients`, `placePatient`, `setPatientManual` | Modify |
 | `src/App.jsx` | проброс трьох дій у `computeView` | Modify |
-| `src/logic.js` | проброс у `view`, `manual` на картці | Modify |
-| `src/components/AddPatientModal.jsx` | **новий** — пошук + вибір колонки | Create |
-| `src/components/Header.jsx` | кнопка «+ Додати пацієнта» | Modify |
-| `src/components/PatientPanel.jsx` | бейдж «вручну» + «Прибрати з дошки» | Modify |
+| `src/logic.js` | проброс у `view`, `canAdd`/`openAdd` на колонці, `addedManually` на картці | Modify |
+| `src/components/AddPatientModal.jsx` | **новий** — пошук по базі CRM | Create |
+| `src/components/Board.jsx` | кнопка «+» у шапці колонки + бейдж на картці | Modify |
+| `src/components/PatientPanel.jsx` | дія «Прибрати з дошки» | Modify |
 
 Пошук винесено в окремий `server/directory.js` навмисне: це єдина частина фічі з нетривіальною логікою (нормалізація телефону, регістр, ліміт), і як чиста функція вона тестується без Express, БД і мережі.
 
@@ -811,7 +811,8 @@ git commit -m "feat(api): patient search + manual place/unplace routes"
   - `api.setPatientManual(id, manual): Promise<Board>`
   - `view.searchPatients(q)`, `view.placePatient(id, stage)` — доступні компонентам.
   - `card.addedManually: boolean` і `card.removeFromBoard()` у списку карток `computeView`; `sel.addedManually`, `sel.canRemove`, `sel.removeFromBoard()` у панелі.
-  - `view.openAddPatient()` — відкриває модалку (стан живе в `App.jsx`, Task 9).
+  - `view.openAddPatient(stage: string)` — відкриває модалку, націлену на цю колонку (стан живе в `App.jsx`, Task 9).
+  - На моделі колонки: `col.canAdd: boolean` і `col.openAdd(): void`.
 
 - [ ] **Step 1: Додати виклики в `src/api.js`**
 
@@ -868,7 +869,16 @@ export function setPatientManual(id, manual) {
 ```js
     searchPatients: ctx.searchPatients || (async () => []),
     placePatient: ctx.placePatient || (() => {}),
-    openAddPatient: ctx.openAddPatient || (() => {}),
+```
+
+У моделі колонки (`src/logic.js:133`, поряд із `isEmpty` та `toggle`) — кнопка
+живе лише на «Очікує план лікування» і лише для тих, хто може рухати картки:
+
+```js
+      // Entry point for pulling an old Clinic Cards patient straight into the
+      // column where responsibles get assigned. Deliberately only on plan_wait.
+      canAdd: s.id === 'plan_wait' && !!ctx.isAdmin,
+      openAdd: () => { ctx.openAddPatient && ctx.openAddPatient(s.id) },
 ```
 
 У мапі картки (де вже є `toggleFrozen`, ~рядок 97):
@@ -900,16 +910,16 @@ git commit -m "feat(ui): wire patient search + manual place actions"
 
 ---
 
-### Task 9: Модалка «Додати пацієнта» і кнопка в шапці
+### Task 9: Модалка пошуку і кнопка «+» у шапці колонки
 
 **Files:**
 - Create: `src/components/AddPatientModal.jsx`
-- Modify: `src/components/Header.jsx` (~`:154`, поряд із кнопкою користувачів)
-- Modify: `src/App.jsx` (стан відкриття модалки, рендер)
+- Modify: `src/components/Board.jsx` (шапка колонки, ~`:255-272`)
+- Modify: `src/App.jsx` (стан модалки, рендер)
 
 **Interfaces:**
-- Consumes: `view.searchPatients`, `view.placePatient`, `view.isAdmin` (Task 8).
-- Produces: компонент `<AddPatientModal view={view} onClose={fn} />`.
+- Consumes: `view.searchPatients`, `view.placePatient` (Task 8); `col.canAdd`, `col.openAdd` (Task 8).
+- Produces: компонент `<AddPatientModal view={view} stage={string} onClose={fn} />`. `stage` приходить із колонки — вибору колонки в модалці немає.
 
 - [ ] **Step 1: Створити компонент**
 
@@ -920,16 +930,18 @@ import { useEffect, useRef, useState } from 'react'
 import { css } from '../css.js'
 import { STAGES } from '../data.js'
 
-// Find any Clinic Cards patient — including one closed long ago — and place them
-// into a column by hand. Search hits our own cached directory, never the CRM.
-export default function AddPatientModal({ view, onClose }) {
+// Find any Clinic Cards patient — including one closed long ago — and drop them
+// into one column. The target column comes from the button that opened this, so
+// there is nothing to pick here but the patient. Search hits our own cached
+// directory, never the CRM.
+export default function AddPatientModal({ view, stage, onClose }) {
   const [q, setQ] = useState('')
   const [rows, setRows] = useState([])
   const [picked, setPicked] = useState(null)
-  const [stage, setStage] = useState('kt')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState(null)
   const seq = useRef(0)
+  const columnTitle = (STAGES.find((s) => s.id === stage) || {}).title || ''
 
   // Debounced search; `seq` drops responses that arrive out of order.
   useEffect(() => {
@@ -953,8 +965,9 @@ export default function AddPatientModal({ view, onClose }) {
   return (
     <div style={css('position:fixed;inset:0;background:rgba(12,20,33,.45);display:flex;align-items:center;justify-content:center;z-index:60;padding:16px')} onClick={onClose}>
       <div style={css('background:#fff;border-radius:16px;width:min(520px,100%);max-height:80vh;display:flex;flex-direction:column;overflow:hidden')} onClick={(e) => e.stopPropagation()}>
-        <div style={css('padding:14px 16px;border-bottom:1px solid #e2e9f2;font-size:14px;font-weight:700;color:#22334c')}>
-          Додати пацієнта з Clinic Cards
+        <div style={css('padding:14px 16px;border-bottom:1px solid #e2e9f2')}>
+          <div style={css('font-size:14px;font-weight:700;color:#22334c')}>Додати пацієнта з Clinic Cards</div>
+          <div style={css('font-size:12px;color:#7c8aa0;margin-top:2px')}>Картка стане в колонку «{columnTitle}»</div>
         </div>
 
         <div style={css('padding:12px 16px')}>
@@ -990,10 +1003,7 @@ export default function AddPatientModal({ view, onClose }) {
 
         {err ? <div style={css('color:#e11d48;font-size:12.5px;padding:0 16px 8px')}>{err}</div> : null}
 
-        <div style={css('padding:12px 16px;border-top:1px solid #e2e9f2;display:flex;gap:8px;align-items:center')}>
-          <select value={stage} onChange={(e) => setStage(e.target.value)} style={css('flex:1;padding:8px 10px;border:1px solid #d8e2ee;border-radius:10px;font-size:13px')}>
-            {STAGES.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}
-          </select>
+        <div style={css('padding:12px 16px;border-top:1px solid #e2e9f2;display:flex;gap:8px;justify-content:flex-end')}>
           <button onClick={onClose} style={css('padding:8px 12px;border-radius:10px;border:1px solid #d8e2ee;background:#fff;font-size:13px;cursor:pointer')}>Скасувати</button>
           <button
             onClick={submit}
@@ -1009,30 +1019,45 @@ export default function AddPatientModal({ view, onClose }) {
 }
 ```
 
-Перед реалізацією звірити з `src/components/HelpModal.jsx`, як у цьому проєкті прийнято робити модалки й імпортувати `css` — і, за потреби, підлаштувати під наявний взірець замість вигаданого тут.
+Перед реалізацією звірити з `src/components/HelpModal.jsx`, як у цьому проєкті
+прийнято робити модалки й імпортувати `css` — і за потреби підлаштувати під
+наявний взірець замість вигаданого тут.
 
-- [ ] **Step 2: Кнопка в шапці**
+- [ ] **Step 2: Кнопка «+» у шапці колонки**
 
-У `src/components/Header.jsx`, перед блоком `{view.manageUsers && (` (~рядок 154):
+У `src/components/Board.jsx`, у розгорнутій шапці колонки, **між** лічильником
+`{col.count}` і кнопкою згортання `col.toggle` (~рядок 267):
 
 ```jsx
-      {view.isAdmin && view.screen === 'board' && (
-        <button
-          onClick={view.openAddPatient}
-          title="Додати пацієнта з Clinic Cards"
-          style={css('padding:7px 11px;border-radius:10px;border:1px solid #d8e2ee;background:#fff;font-size:12.5px;font-weight:600;color:#22334c;cursor:pointer')}
-        >
-          + Додати пацієнта
-        </button>
-      )}
+            {col.canAdd && (
+              <button
+                onClick={col.openAdd}
+                title="Додати пацієнта з Clinic Cards"
+                style={css("width:21px;height:21px;border:none;border-radius:6px;background:rgba(255,255,255,.78);color:#46566e;font:700 14px/21px 'Onest',sans-serif;cursor:pointer;flex:none;padding:0")}
+              >
+                +
+              </button>
+            )}
 ```
 
 - [ ] **Step 3: Стан модалки в `App.jsx`**
 
-Додати `const [addOpen, setAddOpen] = useState(false)`, передати `openAddPatient: () => setAddOpen(true)` в об'єкт для `computeView`, пробросити у `view` в `logic.js` поряд із `openUsers`, і відрендерити:
+Додати імпорт `AddPatientModal` і стан, який тримає цільову колонку (`null` = закрито):
+
+```js
+  const [addStage, setAddStage] = useState(null)
+```
+
+Передати в об'єкт для `computeView`:
+
+```js
+    openAddPatient: (stage) => setAddStage(stage),
+```
+
+І відрендерити поряд з іншими оверлеями:
 
 ```jsx
-      {addOpen && <AddPatientModal view={view} onClose={() => setAddOpen(false)} />}
+      {addStage && <AddPatientModal view={view} stage={addStage} onClose={() => setAddStage(null)} />}
 ```
 
 - [ ] **Step 4: Збірка**
@@ -1043,22 +1068,28 @@ Expected: без помилок
 - [ ] **Step 5: Ручна перевірка на моку**
 
 Run: `npm run dev`
-Кроки: увійти як `admin`/`admin` → «+ Додати пацієнта» → ввести `закритий` → у списку є «Закритий Пацієнт (демо)» з бейджем «закритий» → обрати «Направлений на КТ» → «Додати» → картка зʼявляється в колонці. Повторний пошук показує «вже на дошці».
+
+Кроки: увійти як `admin`/`admin` → у шапці колонки «Очікує план лікування» є «+»
+(в інших колонках його немає) → натиснути → ввести `закритий` → у списку
+«Закритий Пацієнт (демо)» з бейджем «закритий» → «Додати» → картка зʼявилась
+саме в цій колонці → клацнути картку → панель **сама розкрила пікер лікарів**
+(бо відповідальних ще немає) → призначити лікаря → далі звичний потік.
+Повторний пошук показує «вже на дошці».
 
 - [ ] **Step 6: Коміт**
 
 ```bash
-git add src/components/AddPatientModal.jsx src/components/Header.jsx src/App.jsx src/logic.js
-git commit -m "feat(ui): add-patient modal with search and column picker"
+git add src/components/AddPatientModal.jsx src/components/Board.jsx src/App.jsx src/logic.js
+git commit -m "feat(ui): add-patient button in the plan_wait column header"
 ```
 
 ---
 
-### Task 10: Бейдж «вручну» і зняття з дошки
+### Task 10: Бейдж «додано вручну» і зняття з дошки
 
 **Files:**
 - Modify: `src/components/PatientPanel.jsx`
-- Modify: `src/components/Board.jsx` (бейдж на картці)
+- Modify: `src/components/Board.jsx` (бейдж на картці, у `PatientCard`)
 
 **Interfaces:**
 - Consumes: `card.addedManually`, `sel.addedManually`, `sel.canRemove`, `removeFromBoard()` із Task 8.
@@ -1104,7 +1135,7 @@ Run: `npm run dev`
 
 ```bash
 npm test && npm run build
-git add src/components/PatientPanel.jsx src/components/Board.jsx src/logic.js
+git add src/components/PatientPanel.jsx src/components/Board.jsx
 git commit -m "feat(ui): manual badge + remove-from-board action"
 ```
 
