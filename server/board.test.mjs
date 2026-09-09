@@ -198,6 +198,16 @@ async function run() {
   ok(statsAfter.onTimeCount === statsBefore.onTimeCount,
      'place does not inflate the on-time numerator with a bogus transition')
 
+  console.log('9) directory is not persisted in the cache row (Finding 3)')
+  const cacheRow = await db.getCache('cc_snapshot')
+  ok(!!cacheRow, 'the snapshot cache row exists after a forced refresh')
+  const cached = JSON.parse(cacheRow.value)
+  ok(!('directory' in cached), 'the cached row does not carry a directory field')
+  ok(Array.isArray(cached.seeds) && Array.isArray(cached.closedSeeds), 'seeds/closedSeeds are still cached')
+  const dir2 = await getDirectory()
+  ok(dir2.length === mock.seeds.length + mock.closedSeeds.length,
+     'getDirectory still returns the full directory content, rebuilt on read')
+
   server.close()
 
   console.log(`\n✅ ${passed} checks passed`)

@@ -17,6 +17,16 @@ let inflight = null
 
 const fresh = (s) => s && Date.now() - s.at < config.cacheTtlMs
 
+// `directory` is 100% derivable from seeds + closedSeeds (buildLive/buildMock
+// build it the same way — see mapper.js), so the disk cache row skips it
+// entirely: at ~5000 patients that field alone is ~3.75MB, parsed on every
+// cold-lambda request. Rebuilt here instead, on the (much cheaper) read path.
+const toDirectoryEntry = (s, closed) => ({ id: s.id, name: s.name, phone: s.phone, closed })
+const buildDirectory = (seeds, closedSeeds) => [
+  ...(seeds || []).map((s) => toDirectoryEntry(s, false)),
+  ...(closedSeeds || []).map((s) => toDirectoryEntry(s, true)),
+]
+
 async function pullFromClinicCards() {
   if (!isLive) {
     const { seeds, closedSeeds, directory, rawNotifs } = buildMock()
@@ -32,10 +42,14 @@ async function readDiskCache() {
     const row = await getCache(SNAP_KEY)
     if (!row) return null
     const s = JSON.parse(row.value)
-    // Guard against rows written before closedSeeds/directory existed: without
-    // this, the first request after deploy would throw on an undefined `.filter`.
+    // Guard against rows written before closedSeeds existed: without this, the
+    // first request after deploy would throw on an undefined `.filter`.
+    s.seeds = s.seeds || []
     s.closedSeeds = s.closedSeeds || []
-    s.directory = s.directory || []
+    // `directory` is never stored (see the comment above) — rebuild it here.
+    // This also covers old rows that happen to still carry a stored one: it is
+    // ignored and rebuilt the same way, so behaviour is identical either way.
+    s.directory = buildDirectory(s.seeds, s.closedSeeds)
     s.at = Date.parse(row.fetched_at)
     return s
   } catch {
@@ -50,7 +64,7 @@ async function refresh() {
     mem = s
     try {
       await setCache(SNAP_KEY, JSON.stringify({
-        seeds: s.seeds, closedSeeds: s.closedSeeds, directory: s.directory,
+        seeds: s.seeds, closedSeeds: s.closedSeeds,
         rawNotifs: s.rawNotifs, updatedAt: s.updatedAt, source: s.source,
       }), s.updatedAt)
     } catch {
