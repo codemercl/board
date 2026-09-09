@@ -84,6 +84,23 @@ async function run() {
      'manual card in the first column is not dropped by the 30-day window')
   await db.setManual('mock-closed-1', false)
 
+  console.log('6) directory search')
+  const { searchDirectory } = await import('./directory.js')
+  const sample = [
+    { id: '1', name: 'Роза Суренівна Ганжа', phone: '+380 50 123-45-67', closed: false },
+    { id: '2', name: 'Олена Балюк', phone: '+380 67 222-33-44', closed: true },
+    { id: '3', name: 'Іван Ганжа', phone: '', closed: false },
+  ]
+  ok(searchDirectory(sample, 'ганжа').length === 2, 'matches a name substring, case-insensitive')
+  ok(searchDirectory(sample, 'Балюк')[0].id === '2', 'finds the closed patient too')
+  ok(searchDirectory(sample, '0501234567')[0].id === '1', 'matches a phone ignoring formatting')
+  ok(searchDirectory(sample, '1234567')[0].id === '1', 'matches a phone fragment')
+  ok(searchDirectory(sample, 'я').length === 0, 'a one-character query returns nothing')
+  ok(searchDirectory(sample, '   ').length === 0, 'a blank query returns nothing')
+  ok(searchDirectory(sample, 'ганжа', { limit: 1 }).length === 1, 'respects the limit')
+  ok(searchDirectory(sample, 'Балюк', { onBoardIds: new Set(['2']) })[0].onBoard === true, 'flags patients already on the board')
+  ok(searchDirectory(sample, 'ганжа')[0].onBoard === false, 'onBoard is false without the set')
+
   console.log(`\n✅ ${passed} checks passed`)
 }
 
