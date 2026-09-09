@@ -176,6 +176,28 @@ async function run() {
   })
   ok(!removed.body.data.patients.some((p) => p.id === 'mock-closed-1'), 'clearing manual takes it off the board')
 
+  console.log('8) place does not record a bogus stage transition (Finding 1)')
+  // mock-1 already has a position row (created by ensureMissingPositions back
+  // in step 4's getBoard(true)) sitting in a has-norm stage — exactly the
+  // stale row a resurrected card would carry in production.
+  const mock1Before = (await db.getAllPositions()).get('mock-1')
+  ok(!!mock1Before, 'mock-1 already has a position row from ensureMissingPositions')
+  ok(mock1Before.stage === 'consult_scheduled', 'mock-1 sits in a has-norm stage before place')
+
+  const statsBefore = await db.getConversionStats()
+
+  const placeMock1 = await call('/api/patients/mock-1/place', {
+    method: 'POST', headers: auth, body: JSON.stringify({ stage: 'kt' }),
+  })
+  ok(placeMock1.body.data.patients.some((p) => p.id === 'mock-1' && p.stage === 'kt'),
+     'place moved mock-1 into the chosen column')
+
+  const statsAfter = await db.getConversionStats()
+  ok(statsAfter.onTimeTotal === statsBefore.onTimeTotal,
+     'place does not inflate the on-time denominator with a bogus transition')
+  ok(statsAfter.onTimeCount === statsBefore.onTimeCount,
+     'place does not inflate the on-time numerator with a bogus transition')
+
   server.close()
 
   console.log(`\n✅ ${passed} checks passed`)

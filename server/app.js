@@ -235,7 +235,10 @@ app.post('/api/patients/:id/place', requireMove, wrap(async (req, res) => {
   if (!directory.some((d) => String(d.id) === String(id))) {
     return fail(res, 404, 'Пацієнта не знайдено в Clinic Cards')
   }
-  await setStage(id, stage)
+  // Resurrecting a card onto the board is not a stage transition — the stale
+  // position row it may already carry (from back when it was last visible)
+  // must not be measured as an SLA breach in the conversion stats.
+  await setStage(id, stage, { recordTransition: false })
   await setManual(id, true)
   const board = await getBoard(false)
   res.json({ result: 'success', data: filterBoard(board, req.user) })

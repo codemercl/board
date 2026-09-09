@@ -164,11 +164,15 @@ function createMemoryBackend() {
       }
       return n
     },
-    async setStage(patientId, stage) {
+    // `recordTransition: false` skips the transitions-table insert — used by
+    // the manual /place route, where the "previous" stage on record is often
+    // stale (set months ago, before the card scrolled out of the display
+    // window) and would otherwise register as a bogus SLA breach.
+    async setStage(patientId, stage, { recordTransition = true } = {}) {
       const id = String(patientId)
       const at = nowIso()
       const prev = positions.get(id)
-      if (prev && prev.stage && prev.stage !== stage) {
+      if (recordTransition && prev && prev.stage && prev.stage !== stage) {
         const { durationMs, hasNorm, onTime } = transitionFor(prev, stage, at)
         transitions.push({ patient_id: id, from_stage: prev.stage, to_stage: stage, at, duration_ms: durationMs, on_time: onTime, has_norm: hasNorm })
       }
@@ -440,14 +444,18 @@ function createPostgresBackend() {
       await sql`INSERT INTO positions ${sql(rows)} ON CONFLICT (patient_id) DO NOTHING`
       return rows.length
     },
-    async setStage(patientId, stage) {
+    // `recordTransition: false` skips the transitions-table insert — used by
+    // the manual /place route, where the "previous" stage on record is often
+    // stale (set months ago, before the card scrolled out of the display
+    // window) and would otherwise register as a bogus SLA breach.
+    async setStage(patientId, stage, { recordTransition = true } = {}) {
       await init()
       const id = String(patientId)
       const at = nowIso()
       await sql.begin(async (tx) => {
         const [prev] = await tx`SELECT stage, entered_at FROM positions WHERE patient_id = ${id}`
         await insertRow(tx, id, stage, at)
-        if (prev && prev.stage && prev.stage !== stage) {
+        if (recordTransition && prev && prev.stage && prev.stage !== stage) {
           const { durationMs, hasNorm, onTime } = transitionFor(prev, stage, at)
           await tx`INSERT INTO transitions (patient_id, from_stage, to_stage, at, duration_ms, on_time, has_norm)
                    VALUES (${id}, ${prev.stage}, ${stage}, ${at}, ${durationMs}, ${onTime}, ${hasNorm})`
