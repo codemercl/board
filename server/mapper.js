@@ -128,6 +128,19 @@ function betterVisit(a, b, nowMs) {
   return a.startMs >= b.startMs ? a : b
 }
 
+// Compact { id, name, phone, closed } directory entry for the manual-add
+// search — the ONLY place this shape is ever built. Both buildLive and
+// buildMock hand this the seeds/closedSeeds they produced, and store.js
+// calls it again to rebuild the directory after a disk-cache read, so a
+// warm-memory snapshot and one rebuilt after a cold start are byte-identical
+// (same content, same order) instead of drifting apart.
+export function buildDirectory(seeds, closedSeeds) {
+  return [
+    ...(seeds || []).map((s) => ({ id: s.id, name: s.name, phone: s.phone, closed: false })),
+    ...(closedSeeds || []).map((s) => ({ id: s.id, name: s.name, phone: s.phone, closed: true })),
+  ]
+}
+
 export function buildLive(snapshot) {
   const { patients = [], statuses = [], staff = [], plans = [], visits = [] } = snapshot
   const now = new Date()
@@ -176,7 +189,6 @@ export function buildLive(snapshot) {
 
   const seeds = []
   const closedSeeds = []
-  const directory = []
   for (const p of patients) {
     const pStatuses = Array.isArray(p.statuses) ? p.statuses.map(String) : []
     // Closed patients no longer vanish here: they go to closedSeeds so an admin
@@ -225,7 +237,6 @@ export function buildLive(snapshot) {
       createdAt: created ? created.toISOString() : null,
       slaOverride: null,
     }
-    directory.push({ id, name: seed.name, phone: seed.phone, closed })
     if (closed) closedSeeds.push(seed)
     else seeds.push(seed)
   }
@@ -242,7 +253,7 @@ export function buildLive(snapshot) {
       time: relativeTime(s.createdAt),
     }))
 
-  return { seeds, closedSeeds, directory, rawNotifs }
+  return { seeds, closedSeeds, rawNotifs }
 }
 
 // ─── treatment-plan review → display state ────────────────────────────────────

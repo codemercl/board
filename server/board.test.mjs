@@ -24,8 +24,8 @@ async function run() {
   pos = await db.getAllPositions()
   ok(pos.get('p-manual-1').manual === 0, 'manual = 0 after setManual(false)')
 
-  console.log('2) buildLive splits open / closed and builds a directory')
-  const { buildLive } = await import('./mapper.js')
+  console.log('2) buildLive splits open / closed patients')
+  const { buildLive, buildDirectory } = await import('./mapper.js')
   const snap = {
     patients: [
       { patient_id: 1, firstname: 'Іван', lastname: 'Відкритий', phone: '+380501112233', statuses: ['10'], date_created: '2026-09-01' },
@@ -38,16 +38,23 @@ async function run() {
   ok(built.seeds.length === 1 && built.seeds[0].id === '1', 'seeds holds only the open patient')
   ok(built.closedSeeds.length === 1 && built.closedSeeds[0].id === '2', 'closedSeeds holds the closed patient')
   ok(built.closedSeeds[0].phone.includes('67'), 'closedSeeds keeps the full seed shape (phone present)')
-  ok(built.directory.length === 2, 'directory holds every patient')
-  ok(built.directory.find((d) => d.id === '2').closed === true, 'directory flags the closed one')
   ok(built.rawNotifs.every((n) => !n.text.includes('Закрита')), 'the feed ignores closed patients')
+  ok(built.directory === undefined, 'buildLive no longer builds its own directory')
+
+  console.log('2b) buildDirectory is the single place a directory is ever built')
+  const dirFromLive = buildDirectory(built.seeds, built.closedSeeds)
+  ok(dirFromLive.length === 2, 'directory holds every patient')
+  ok(dirFromLive[0].id === '1' && dirFromLive[0].closed === false, 'open seeds come first, flagged open')
+  ok(dirFromLive[1].id === '2' && dirFromLive[1].closed === true, 'closedSeeds come after, flagged closed')
 
   console.log('3) buildMock matches the buildLive contract')
   const { buildMock } = await import('./mockData.js')
   const mock = buildMock()
-  ok(Array.isArray(mock.closedSeeds) && Array.isArray(mock.directory), 'mock exposes closedSeeds + directory')
+  ok(Array.isArray(mock.seeds) && Array.isArray(mock.closedSeeds), 'mock exposes seeds + closedSeeds')
   ok(mock.closedSeeds.some((s) => s.id === 'mock-closed-1'), 'mock ships one closed demo patient')
-  ok(mock.directory.length === mock.seeds.length + mock.closedSeeds.length, 'directory covers every mock patient')
+  ok(mock.directory === undefined, 'buildMock no longer builds its own directory either')
+  const mockDir = buildDirectory(mock.seeds, mock.closedSeeds)
+  ok(mockDir.length === mock.seeds.length + mock.closedSeeds.length, 'directory covers every mock patient')
 
   console.log('4) getBoard admits a closed patient only when marked manual')
   const { getBoard, getDirectory } = await import('./store.js')
@@ -207,6 +214,21 @@ async function run() {
   const dir2 = await getDirectory()
   ok(dir2.length === mock.seeds.length + mock.closedSeeds.length,
      'getDirectory still returns the full directory content, rebuilt on read')
+
+  console.log('10) warm-memory and disk-cache-rebuilt directories are byte-identical, in order (Finding 3 follow-up)')
+  // getDirectory() above answered from this module's warm `mem`. A fresh
+  // import of store.js (cache-busted query string) gets its own `mem = null`
+  // but shares the same db.js singleton, so its first getDirectory() call is
+  // forced onto the disk-cache path — exactly the "cold lambda" case the
+  // review flagged: a query matching >20 patients must not surface a
+  // different slice of names depending on which path answered it.
+  const warmDir = await getDirectory()
+  const { getDirectory: getDirectoryCold } = await import(`./store.js?cold=${Date.now()}`)
+  const coldDir = await getDirectoryCold()
+  ok(coldDir.length > 0, 'the cold-path directory is non-empty (actually exercised the disk cache)')
+  let identical = true
+  try { assert.deepStrictEqual(coldDir, warmDir) } catch { identical = false }
+  ok(identical, 'warm-memory and disk-cache-rebuilt directories match exactly, content and order')
 
   server.close()
 

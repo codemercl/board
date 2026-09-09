@@ -1,6 +1,6 @@
 import { config, isLive } from './config.js'
 import { fetchClinicSnapshot } from './clinicCards.js'
-import { buildLive, assemble } from './mapper.js'
+import { buildLive, buildDirectory, assemble } from './mapper.js'
 import { buildMock } from './mockData.js'
 import { getAllPositions, ensureMissingPositions, getConversionStats, getCache, setCache } from './db.js'
 import { recentEvents } from './notify.js'
@@ -17,23 +17,24 @@ let inflight = null
 
 const fresh = (s) => s && Date.now() - s.at < config.cacheTtlMs
 
-// `directory` is 100% derivable from seeds + closedSeeds (buildLive/buildMock
-// build it the same way — see mapper.js), so the disk cache row skips it
-// entirely: at ~5000 patients that field alone is ~3.75MB, parsed on every
-// cold-lambda request. Rebuilt here instead, on the (much cheaper) read path.
-const toDirectoryEntry = (s, closed) => ({ id: s.id, name: s.name, phone: s.phone, closed })
-const buildDirectory = (seeds, closedSeeds) => [
-  ...(seeds || []).map((s) => toDirectoryEntry(s, false)),
-  ...(closedSeeds || []).map((s) => toDirectoryEntry(s, true)),
-]
-
+// `directory` is 100% derivable from seeds + closedSeeds — buildDirectory()
+// (server/mapper.js) is the single place that shape is ever built, called
+// here on BOTH the fresh-pull path and the disk-cache path below. That is
+// what guarantees a warm-memory snapshot and one rebuilt after a cold start
+// are byte-identical (same content, same order): neither buildLive nor
+// buildMock builds a directory of its own to (potentially) disagree with.
+// It also means the disk cache row itself never carries the field — at
+// ~5000 patients that would roughly double the row's size (~3.75MB), parsed
+// on every cold-lambda request for no reason.
 async function pullFromClinicCards() {
   if (!isLive) {
-    const { seeds, closedSeeds, directory, rawNotifs } = buildMock()
+    const { seeds, closedSeeds, rawNotifs } = buildMock()
+    const directory = buildDirectory(seeds, closedSeeds)
     return { seeds, closedSeeds, directory, rawNotifs, updatedAt: new Date().toISOString(), source: 'mock', at: Date.now() }
   }
   const snap = await fetchClinicSnapshot()
-  const { seeds, closedSeeds, directory, rawNotifs } = buildLive(snap)
+  const { seeds, closedSeeds, rawNotifs } = buildLive(snap)
+  const directory = buildDirectory(seeds, closedSeeds)
   return { seeds, closedSeeds, directory, rawNotifs, updatedAt: new Date().toISOString(), source: 'live', at: Date.now() }
 }
 
@@ -46,9 +47,10 @@ async function readDiskCache() {
     // first request after deploy would throw on an undefined `.filter`.
     s.seeds = s.seeds || []
     s.closedSeeds = s.closedSeeds || []
-    // `directory` is never stored (see the comment above) — rebuild it here.
-    // This also covers old rows that happen to still carry a stored one: it is
-    // ignored and rebuilt the same way, so behaviour is identical either way.
+    // `directory` is never stored (see the comment above) — rebuild it here,
+    // via the same buildDirectory() call the fresh-pull path uses. This also
+    // covers old rows that happen to still carry a stored one: it is ignored
+    // and rebuilt the same way, so behaviour is identical either way.
     s.directory = buildDirectory(s.seeds, s.closedSeeds)
     s.at = Date.parse(row.fetched_at)
     return s
@@ -94,7 +96,7 @@ async function getSnapshot(force = false) {
     // Serve the freshest thing we have, flagged with the error.
     const stale = mem || (await readDiskCache())
     if (stale) return { ...stale, error: e.message }
-    return { seeds: [], rawNotifs: [], updatedAt: new Date().toISOString(), source: isLive ? 'live' : 'mock', error: e.message, at: Date.now() }
+    return { seeds: [], closedSeeds: [], directory: [], rawNotifs: [], updatedAt: new Date().toISOString(), source: isLive ? 'live' : 'mock', error: e.message, at: Date.now() }
   }
 }
 

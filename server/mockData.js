@@ -124,9 +124,8 @@ export function buildMock() {
     createdAt: new Date(Date.now() - 200 * 86400000).toISOString(),
     slaOverride: null,
   }]
-  const directory = [
-    ...seeds.map((s) => ({ id: s.id, name: s.name, phone: s.phone, closed: false })),
-    ...closedSeeds.map((s) => ({ id: s.id, name: s.name, phone: s.phone, closed: true })),
-  ]
-  return { seeds, closedSeeds, directory, rawNotifs: RAW_NOTIFS }
+  // directory is intentionally not built here — server/mapper.js's
+  // buildDirectory() is the single place that shape is ever constructed
+  // (see store.js), so a mock pull and a live pull stay byte-identical.
+  return { seeds, closedSeeds, rawNotifs: RAW_NOTIFS }
 }
