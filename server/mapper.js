@@ -175,9 +175,13 @@ export function buildLive(snapshot) {
   for (const p of plans) planById.set(String(p.plan_id), { name: p.plan_name, doctorId: String(p.doctor_id) })
 
   const seeds = []
+  const closedSeeds = []
+  const directory = []
   for (const p of patients) {
     const pStatuses = Array.isArray(p.statuses) ? p.statuses.map(String) : []
-    if (pStatuses.some((id) => closedStatusIds.has(id))) continue // "closed" → hidden
+    // Closed patients no longer vanish here: they go to closedSeeds so an admin
+    // can pull one back onto the board by hand (see store.getBoard).
+    const closed = pStatuses.some((id) => closedStatusIds.has(id))
 
     const id = String(p.patient_id)
     const name = joinName(p.firstname, p.lastname, p.code)
@@ -202,7 +206,7 @@ export function buildLive(snapshot) {
     const note = (p.important_note || '').trim() || (p.source ? `Джерело: ${p.source}` : '') || (p.note || '').trim()
     const created = parseDate(p.date_created)
 
-    seeds.push({
+    const seed = {
       id,
       name,
       phone: formatPhone(p.phone || p.phone2),
@@ -220,7 +224,10 @@ export function buildLive(snapshot) {
       defaultStage: FIRST_STAGE,
       createdAt: created ? created.toISOString() : null,
       slaOverride: null,
-    })
+    }
+    directory.push({ id, name: seed.name, phone: seed.phone, closed })
+    if (closed) closedSeeds.push(seed)
+    else seeds.push(seed)
   }
 
   // Feed: newest imported patients.
@@ -235,7 +242,7 @@ export function buildLive(snapshot) {
       time: relativeTime(s.createdAt),
     }))
 
-  return { seeds, rawNotifs }
+  return { seeds, closedSeeds, directory, rawNotifs }
 }
 
 // ─── treatment-plan review → display state ────────────────────────────────────
