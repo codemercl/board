@@ -134,14 +134,16 @@ export default function PatientPanel({ view }) {
           </button>
         )}
 
-        {/* Manually added patient: admin can take it back off the board. */}
+        {/* Manually added patient: admin can clear the manual flag. This only
+            unmarks the card — a closed patient then drops off the board, but
+            an open one stays visible until the normal display window ends. */}
         {sel.addedManually && sel.canRemove && (
           <button
             className="cc-action"
             onClick={() => sel.removeFromBoard()}
             style={css('align-self:flex-start;padding:7px 11px;border-radius:10px;border:1px solid #ffd9e0;background:#fff;color:#e11d48;font-size:12.5px;font-family:\'Onest\',sans-serif;cursor:pointer')}
           >
-            Прибрати з дошки
+            Зняти мітку «додано вручну»
           </button>
         )}
 
