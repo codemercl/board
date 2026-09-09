@@ -77,7 +77,7 @@ function createMemoryBackend() {
   // Per-chat bot conversation state (what the next message means). Kept in the
   // store so it survives serverless invocations, not just in a local Map.
   const botState = new Map()
-  const ensureRow = (id, at) => positions.get(id) || { patient_id: id, stage: FIRST_STAGE, entered_at: at, first_seen: at, hot: null, frozen: null, reminder_dismissed_at: null, plan_review: null, updated_at: at }
+  const ensureRow = (id, at) => positions.get(id) || { patient_id: id, stage: FIRST_STAGE, entered_at: at, first_seen: at, hot: null, frozen: null, manual: null, reminder_dismissed_at: null, plan_review: null, updated_at: at }
 
   return {
     async getBotState(chatId) {
@@ -159,7 +159,7 @@ function createMemoryBackend() {
       for (const s of seeds) {
         const id = String(s.id)
         if (known.has(id) || positions.has(id)) continue
-        positions.set(id, { patient_id: id, stage: s.defaultStage, entered_at: at, first_seen: at, hot: null, frozen: null, reminder_dismissed_at: null, updated_at: at })
+        positions.set(id, { patient_id: id, stage: s.defaultStage, entered_at: at, first_seen: at, hot: null, frozen: null, manual: null, reminder_dismissed_at: null, updated_at: at })
         n++
       }
       return n
@@ -183,6 +183,11 @@ function createMemoryBackend() {
       const id = String(patientId)
       const at = nowIso()
       positions.set(id, { ...ensureRow(id, at), frozen: frozen ? 1 : 0, updated_at: at })
+    },
+    async setManual(patientId, manual) {
+      const id = String(patientId)
+      const at = nowIso()
+      positions.set(id, { ...ensureRow(id, at), manual: manual ? 1 : 0, updated_at: at })
     },
     async dismissFollowup(patientId, visitAt) {
       const id = String(patientId)
@@ -249,6 +254,8 @@ function createPostgresBackend() {
         )`
         // Additive migration for existing tables (freeze flag).
         await sql`ALTER TABLE positions ADD COLUMN IF NOT EXISTS frozen integer`
+        // Additive migration: card was placed on the board by hand.
+        await sql`ALTER TABLE positions ADD COLUMN IF NOT EXISTS manual integer`
         // Treatment-plan review state (responsibles, sign-offs, postpone) as JSON.
         await sql`ALTER TABLE positions ADD COLUMN IF NOT EXISTS plan_review text`
         await sql`CREATE TABLE IF NOT EXISTS transitions (
@@ -462,6 +469,13 @@ function createPostgresBackend() {
       await insertRow(sql, id, FIRST_STAGE, at)
       await sql`UPDATE positions SET frozen = ${frozen ? 1 : 0}, updated_at = ${at} WHERE patient_id = ${id}`
     },
+    async setManual(patientId, manual) {
+      await init()
+      const id = String(patientId)
+      const at = nowIso()
+      await insertRow(sql, id, FIRST_STAGE, at)
+      await sql`UPDATE positions SET manual = ${manual ? 1 : 0}, updated_at = ${at} WHERE patient_id = ${id}`
+    },
     async dismissFollowup(patientId, visitAt) {
       await init()
       const id = String(patientId)
@@ -560,6 +574,7 @@ export const ensureMissingPositions = (...a) => backend.ensureMissingPositions(.
 export const setStage = (...a) => backend.setStage(...a)
 export const setHot = (...a) => backend.setHot(...a)
 export const setFrozen = (...a) => backend.setFrozen(...a)
+export const setManual = (...a) => backend.setManual(...a)
 export const dismissFollowup = (...a) => backend.dismissFollowup(...a)
 export const getConversionStats = (...a) => backend.getConversionStats(...a)
 export const getCache = (...a) => backend.getCache(...a)
