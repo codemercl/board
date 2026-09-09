@@ -101,6 +101,56 @@ async function run() {
   ok(searchDirectory(sample, 'Балюк', { onBoardIds: new Set(['2']) })[0].onBoard === true, 'flags patients already on the board')
   ok(searchDirectory(sample, 'ганжа')[0].onBoard === false, 'onBoard is false without the set')
 
+  console.log('7) routes')
+  const { default: app } = await import('./app.js')
+  const server = app.listen(0)
+  await new Promise((r) => server.once('listening', r))
+  const base = `http://127.0.0.1:${server.address().port}`
+  const call = async (path, opts = {}) => {
+    const res = await fetch(base + path, opts)
+    return { status: res.status, body: await res.json().catch(() => ({})) }
+  }
+
+  const login = await call('/api/login', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user: 'admin', password: 'admin' }),
+  })
+  const token = login.body?.data?.token
+  ok(!!token, 'bootstrap admin can log in')
+  const auth = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+
+  const anon = await call('/api/patients/search?q=закритий')
+  ok(anon.status === 401, 'search requires auth')
+
+  const found = await call('/api/patients/search?q=закритий', { headers: auth })
+  ok(found.body.data.some((d) => d.id === 'mock-closed-1'), 'search finds the closed demo patient')
+
+  const bad = await call('/api/patients/mock-closed-1/place', {
+    method: 'POST', headers: auth, body: JSON.stringify({ stage: 'nonsense' }),
+  })
+  ok(bad.status === 400, 'place rejects an unknown stage')
+
+  const missing = await call('/api/patients/no-such-id/place', {
+    method: 'POST', headers: auth, body: JSON.stringify({ stage: 'kt' }),
+  })
+  ok(missing.status === 404, 'place rejects an id that is not in Clinic Cards')
+
+  const placed2 = await call('/api/patients/mock-closed-1/place', {
+    method: 'POST', headers: auth, body: JSON.stringify({ stage: 'kt' }),
+  })
+  ok(placed2.body.data.patients.some((p) => p.id === 'mock-closed-1' && p.stage === 'kt'),
+     'place puts the closed patient on the board')
+
+  const onBoard = await call('/api/patients/search?q=закритий', { headers: auth })
+  ok(onBoard.body.data.find((d) => d.id === 'mock-closed-1').onBoard === true, 'search reports it as already on the board')
+
+  const removed = await call('/api/patients/mock-closed-1/manual', {
+    method: 'POST', headers: auth, body: JSON.stringify({ manual: false }),
+  })
+  ok(!removed.body.data.patients.some((p) => p.id === 'mock-closed-1'), 'clearing manual takes it off the board')
+
+  server.close()
+
   console.log(`\n✅ ${passed} checks passed`)
 }
 
