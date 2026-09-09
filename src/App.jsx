@@ -173,6 +173,18 @@ export default function App() {
     catch (e) { if (mounted.current) setError(e.message); throw e }
   }, [applyBoard])
 
+  const searchPatients = useCallback((q) => api.searchPatients(q), [])
+
+  const placePatient = useCallback(async (id, stage) => {
+    try { applyBoard(await api.placePatient(id, stage)) }
+    catch (e) { if (mounted.current) setError(e.message); throw e }
+  }, [applyBoard])
+
+  const setPatientManual = useCallback(async (id, manual) => {
+    try { applyBoard(await api.setPatientManual(id, manual)) }
+    catch (e) { if (mounted.current) setError(e.message); throw e }
+  }, [applyBoard])
+
   const view = computeView(state, DEFAULT_PROPS, setState, {
     patients: board.patients,
     admins: board.admins,
@@ -184,6 +196,9 @@ export default function App() {
     setPlanResponsibles,
     planSignoff,
     planPostpone,
+    searchPatients,
+    placePatient,
+    setPatientManual,
     isAdmin: !!(me && me.canMove),
     allowedStages: me ? me.stages : null,
     me,

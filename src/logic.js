@@ -96,6 +96,8 @@ export function computeView(state, props, setState, ctx) {
       frozen,
       toggleFrozen: () => { ctx.toggleFrozen && ctx.toggleFrozen(p.id, !frozen) },
       dismissFollowup: () => { ctx.dismissFollowup && ctx.dismissFollowup(p.id, p.followupVisitAt) },
+      addedManually: !!p.manual,
+      removeFromBoard: () => { ctx.setPatientManual && ctx.setPatientManual(p.id, false) },
       isSelected: isSel,
       cardBg: glowStyle && glow ? glowStyle.bg : '#ffffff',
       cardBorder: isSel ? '#7fa6e0' : (glowStyle ? glowStyle.border : '#e6ecf3'),
@@ -148,6 +150,10 @@ export function computeView(state, props, setState, ctx) {
         if (next[s.id]) delete next[s.id]; else next[s.id] = true
         setState({ collapsed: next })
       },
+      // Entry point for pulling an old Clinic Cards patient straight into the
+      // column where responsibles get assigned. Deliberately only on plan_wait.
+      canAdd: s.id === 'plan_wait' && !!ctx.isAdmin,
+      openAdd: () => { ctx.openAddPatient && ctx.openAddPatient(s.id) },
     })
   })
 
@@ -298,6 +304,9 @@ export function computeView(state, props, setState, ctx) {
       slaBlockBg: found.isStuck ? '#fff8ef' : found.isOver ? '#fff8f9' : found.isWarn ? '#fffdf6' : '#fbfcfe',
       slaTextColor: found.isOver ? '#be123c' : found.isWarn ? '#b45309' : '#22334c',
       moveNext: () => { if (nextId && !planMoveBlocked) moveStage(found.id, nextId) },
+      addedManually: !!found.manual,
+      canRemove: !!ctx.isAdmin,
+      removeFromBoard: () => { ctx.setPatientManual && ctx.setPatientManual(found.id, false) },
     })
   }
 
@@ -315,6 +324,8 @@ export function computeView(state, props, setState, ctx) {
     openBoard: ctx.openBoard || (() => {}),
     logout: ctx.logout || (() => {}),
     moveTo: (id, stage) => moveStage(id, stage),
+    searchPatients: ctx.searchPatients || (async () => []),
+    placePatient: ctx.placePatient || (() => {}),
     workloadAll,
     workloadOpen: !!state.workloadOpen,
     toggleWorkload: () => setState({ workloadOpen: !state.workloadOpen }),
