@@ -130,6 +130,23 @@ async function run() {
   })
   ok(bad.status === 400, 'place rejects an unknown stage')
 
+  // A role with restricted columns (canMove: true, stages excludes 'lost' —
+  // see ROLE_DEFAULTS.doctor) must be blocked from placing into a forbidden
+  // column, same as /stage already enforces.
+  await db.createUser({ username: 'doc-limited', password: 'pw12345', role: 'doctor' })
+  const docLogin = await call('/api/login', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user: 'doc-limited', password: 'pw12345' }),
+  })
+  const docToken = docLogin.body?.data?.token
+  ok(!!docToken, 'restricted doctor account can log in')
+  const docAuth = { 'Content-Type': 'application/json', Authorization: `Bearer ${docToken}` }
+
+  const forbidden = await call('/api/patients/mock-closed-1/place', {
+    method: 'POST', headers: docAuth, body: JSON.stringify({ stage: 'lost' }),
+  })
+  ok(forbidden.status === 403, 'place enforces the column-permission check like /stage does')
+
   const missing = await call('/api/patients/no-such-id/place', {
     method: 'POST', headers: auth, body: JSON.stringify({ stage: 'kt' }),
   })
@@ -143,6 +160,16 @@ async function run() {
 
   const onBoard = await call('/api/patients/search?q=закритий', { headers: auth })
   ok(onBoard.body.data.find((d) => d.id === 'mock-closed-1').onBoard === true, 'search reports it as already on the board')
+
+  // The string "false" is truthy in JS — !! coercion would silently turn this
+  // into manual=true. Only real booleans are accepted.
+  const badManual = await call('/api/patients/mock-closed-1/manual', {
+    method: 'POST', headers: auth, body: JSON.stringify({ manual: 'false' }),
+  })
+  ok(badManual.status === 400, 'manual rejects a non-boolean value')
+  const stillOn = await call('/api/patients/search?q=закритий', { headers: auth })
+  ok(stillOn.body.data.find((d) => d.id === 'mock-closed-1').onBoard === true,
+     'the string "false" did not clear the flag')
 
   const removed = await call('/api/patients/mock-closed-1/manual', {
     method: 'POST', headers: auth, body: JSON.stringify({ manual: false }),

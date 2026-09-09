@@ -228,6 +228,9 @@ app.post('/api/patients/:id/place', requireMove, wrap(async (req, res) => {
   const { id } = req.params
   const stage = (req.body && req.body.stage) || ''
   if (!STAGE_IDS.has(stage)) return fail(res, 400, 'Невідома колонка')
+  if (req.user.stages && !req.user.stages.includes(stage)) {
+    return fail(res, 403, 'Ця колонка недоступна для вашої ролі')
+  }
   const directory = await getDirectory()
   if (!directory.some((d) => String(d.id) === String(id))) {
     return fail(res, 404, 'Пацієнта не знайдено в Clinic Cards')
@@ -243,7 +246,9 @@ app.post('/api/patients/:id/place', requireMove, wrap(async (req, res) => {
 // The position row and plan_review are kept, so re-adding restores the state.
 app.post('/api/patients/:id/manual', requireMove, wrap(async (req, res) => {
   const { id } = req.params
-  await setManual(id, !!(req.body && req.body.manual))
+  const { manual } = req.body || {}
+  if (typeof manual !== 'boolean') return fail(res, 400, 'Поле manual має бути true або false')
+  await setManual(id, manual)
   const board = await getBoard(false)
   res.json({ result: 'success', data: filterBoard(board, req.user) })
 }))
