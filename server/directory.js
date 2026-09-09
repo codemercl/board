@@ -4,6 +4,12 @@
 
 const MIN_QUERY = 2
 const DEFAULT_LIMIT = 20
+// Minimum digits a query must have before it is allowed to match on phone.
+// MUST NEVER be lowered to 0 (or omitted): with 0 digits, needleDigits is ''
+// and String.prototype.includes('') is true for every string, so a query with
+// no digits (e.g. a name) would match every patient's phone number and the
+// phone branch would stop filtering anything.
+const MIN_PHONE_DIGITS = 3
 
 const digitsOf = (s) => String(s || '').replace(/\D/g, '')
 
@@ -20,7 +26,7 @@ export function searchDirectory(directory, q, opts = {}) {
   const out = []
   for (const entry of directory || []) {
     const nameHit = String(entry.name || '').toLowerCase().includes(needle)
-    const phoneHit = needleDigits.length >= 3 && digitsOf(entry.phone).includes(needleDigits)
+    const phoneHit = needleDigits.length >= MIN_PHONE_DIGITS && digitsOf(entry.phone).includes(needleDigits)
     if (!nameHit && !phoneHit) continue
     out.push({
       id: String(entry.id),
