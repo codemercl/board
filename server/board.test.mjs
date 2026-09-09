@@ -49,6 +49,33 @@ async function run() {
   ok(mock.closedSeeds.some((s) => s.id === 'mock-closed-1'), 'mock ships one closed demo patient')
   ok(mock.directory.length === mock.seeds.length + mock.closedSeeds.length, 'directory covers every mock patient')
 
+  console.log('4) getBoard admits a closed patient only when marked manual')
+  const { getBoard, getDirectory } = await import('./store.js')
+  let board = await getBoard(true)
+  ok(!board.patients.some((p) => p.id === 'mock-closed-1'), 'closed patient is hidden by default')
+
+  await db.setStage('mock-closed-1', 'kt')
+  await db.setManual('mock-closed-1', true)
+  board = await getBoard(false)
+  const placed = board.patients.find((p) => p.id === 'mock-closed-1')
+  ok(!!placed, 'closed patient appears once marked manual')
+  ok(placed.stage === 'kt', 'it lands in the chosen column')
+  ok(placed.manual === true, 'the card carries the manual flag')
+
+  await db.setManual('mock-closed-1', false)
+  board = await getBoard(false)
+  ok(!board.patients.some((p) => p.id === 'mock-closed-1'), 'clearing the flag removes it again')
+
+  const dir = await getDirectory()
+  ok(dir.some((d) => d.id === 'mock-closed-1' && d.closed), 'getDirectory exposes the closed patient')
+
+  // Closed patients must never reach ensureMissingPositions: otherwise the
+  // positions table would grow a row for every archived patient in the CRM.
+  const posCount = (await db.getAllPositions()).size
+  await getBoard(true)
+  ok((await db.getAllPositions()).size === posCount,
+     'a board rebuild does not create position rows for closed patients')
+
   console.log(`\n✅ ${passed} checks passed`)
 }
 

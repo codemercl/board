@@ -19,12 +19,12 @@ const fresh = (s) => s && Date.now() - s.at < config.cacheTtlMs
 
 async function pullFromClinicCards() {
   if (!isLive) {
-    const { seeds, rawNotifs } = buildMock()
-    return { seeds, rawNotifs, updatedAt: new Date().toISOString(), source: 'mock', at: Date.now() }
+    const { seeds, closedSeeds, directory, rawNotifs } = buildMock()
+    return { seeds, closedSeeds, directory, rawNotifs, updatedAt: new Date().toISOString(), source: 'mock', at: Date.now() }
   }
   const snap = await fetchClinicSnapshot()
-  const { seeds, rawNotifs } = buildLive(snap)
-  return { seeds, rawNotifs, updatedAt: new Date().toISOString(), source: 'live', at: Date.now() }
+  const { seeds, closedSeeds, directory, rawNotifs } = buildLive(snap)
+  return { seeds, closedSeeds, directory, rawNotifs, updatedAt: new Date().toISOString(), source: 'live', at: Date.now() }
 }
 
 async function readDiskCache() {
@@ -32,6 +32,10 @@ async function readDiskCache() {
     const row = await getCache(SNAP_KEY)
     if (!row) return null
     const s = JSON.parse(row.value)
+    // Guard against rows written before closedSeeds/directory existed: without
+    // this, the first request after deploy would throw on an undefined `.filter`.
+    s.closedSeeds = s.closedSeeds || []
+    s.directory = s.directory || []
     s.at = Date.parse(row.fetched_at)
     return s
   } catch {
@@ -45,7 +49,10 @@ async function refresh() {
     const s = await pullFromClinicCards()
     mem = s
     try {
-      await setCache(SNAP_KEY, JSON.stringify({ seeds: s.seeds, rawNotifs: s.rawNotifs, updatedAt: s.updatedAt, source: s.source }), s.updatedAt)
+      await setCache(SNAP_KEY, JSON.stringify({
+        seeds: s.seeds, closedSeeds: s.closedSeeds, directory: s.directory,
+        rawNotifs: s.rawNotifs, updatedAt: s.updatedAt, source: s.source,
+      }), s.updatedAt)
     } catch {
       /* cache write is best-effort */
     }
@@ -110,16 +117,29 @@ export async function getBoard(force = false) {
   const known = await getAllPositions()
   const inserted = await ensureMissingPositions(seeds, known)
   const positions = inserted ? await getAllPositions() : known
+  // Closed patients an admin pulled back onto the board by hand. They are not in
+  // `seeds` (buildLive keeps them apart) and deliberately never reach
+  // ensureMissingPositions — only the ones already flagged are merged back in.
+  const manualClosed = (snap.closedSeeds || []).filter((s) => positions.get(String(s.id))?.manual)
+  const allSeeds = manualClosed.length ? [...seeds, ...manualClosed] : seeds
   const conversion = await getConversionStats()
   // Live workflow events (plan assigned / signed off / postponed / overdue)
   // ride at the top of the feed, ahead of the CRM import notifications.
   const events = recentEvents()
   const notifs = [...events, ...(snap.rawNotifs || [])].slice(0, 12)
-  return assemble(seeds, notifs, {
+  return assemble(allSeeds, notifs, {
     positions,
     conversion,
     updatedAt: snap.updatedAt,
     source: snap.source,
     error: snap.error || null,
   })
+}
+
+// Compact { id, name, phone, closed } for every Clinic Cards patient — the
+// source for the manual-add search. Served from the same cached snapshot as the
+// board, so a search costs no extra CRM calls.
+export async function getDirectory() {
+  const snap = await getSnapshot(false)
+  return snap.directory || []
 }

@@ -408,6 +408,7 @@ export function assemble(seeds, rawNotifs, meta = {}) {
       admin: seed.admin.key,
       hot,
       frozen,
+      manual: !!pos.manual, // closed patient an admin pulled back onto the board by hand
       synced: seed.synced,
       daysInStage: Math.floor(daysInStage),
       isStuck,
