@@ -264,6 +264,15 @@ function Column({ col, filterKey, dnd }) {
             <span style={css("min-width:22px;height:21px;padding:0 7px;border-radius:7px;background:rgba(255,255,255,.78);color:#46566e;font:600 11.5px/21px 'JetBrains Mono',monospace;text-align:center;flex:none")}>
               {col.count}
             </span>
+            {col.canAdd && (
+              <button
+                onClick={col.openAdd}
+                title="Додати пацієнта з Clinic Cards"
+                style={css("width:21px;height:21px;border:none;border-radius:6px;background:rgba(255,255,255,.78);color:#46566e;font:700 14px/21px 'Onest',sans-serif;cursor:pointer;flex:none;padding:0")}
+              >
+                +
+              </button>
+            )}
             <button
               className="cc-col-collapse"
               onClick={col.toggle}
