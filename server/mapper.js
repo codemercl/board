@@ -332,7 +332,10 @@ export function assemble(seeds, rawNotifs, meta = {}) {
 
     // Display window: a month from заявка creation; each stage advance re-anchors
     // it to the advance date (= entered_at). Out-of-window patients drop off.
-    const anchorMs = movedByUs ? enteredMs : (createdMs ?? enteredMs)
+    // Manually placed cards anchor on entered_at even when the chosen column is
+    // the first one: otherwise `movedByUs` stays false, the anchor falls back to
+    // a заявка created months ago, and the card vanishes the instant it is added.
+    const anchorMs = (pos.manual || movedByUs) ? enteredMs : (createdMs ?? enteredMs)
     const windowEndMs = anchorMs + windowMs
     if (now > windowEndMs) continue
 

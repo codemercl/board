@@ -76,6 +76,14 @@ async function run() {
   ok((await db.getAllPositions()).size === posCount,
      'a board rebuild does not create position rows for closed patients')
 
+  console.log('5) a manual card survives the display window in the FIRST column')
+  await db.setStage('mock-closed-1', 'consult_scheduled')
+  await db.setManual('mock-closed-1', true)
+  board = await getBoard(false)
+  ok(board.patients.some((p) => p.id === 'mock-closed-1'),
+     'manual card in the first column is not dropped by the 30-day window')
+  await db.setManual('mock-closed-1', false)
+
   console.log(`\n✅ ${passed} checks passed`)
 }
 
