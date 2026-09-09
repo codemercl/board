@@ -42,6 +42,13 @@ async function run() {
   ok(built.directory.find((d) => d.id === '2').closed === true, 'directory flags the closed one')
   ok(built.rawNotifs.every((n) => !n.text.includes('Закрита')), 'the feed ignores closed patients')
 
+  console.log('3) buildMock matches the buildLive contract')
+  const { buildMock } = await import('./mockData.js')
+  const mock = buildMock()
+  ok(Array.isArray(mock.closedSeeds) && Array.isArray(mock.directory), 'mock exposes closedSeeds + directory')
+  ok(mock.closedSeeds.some((s) => s.id === 'mock-closed-1'), 'mock ships one closed demo patient')
+  ok(mock.directory.length === mock.seeds.length + mock.closedSeeds.length, 'directory covers every mock patient')
+
   console.log(`\n✅ ${passed} checks passed`)
 }
 
