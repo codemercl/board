@@ -134,6 +134,17 @@ export default function PatientPanel({ view }) {
           </button>
         )}
 
+        {/* Manually added patient: admin can take it back off the board. */}
+        {sel.addedManually && sel.canRemove && (
+          <button
+            className="cc-action"
+            onClick={() => sel.removeFromBoard()}
+            style={css('align-self:flex-start;padding:7px 11px;border-radius:10px;border:1px solid #ffd9e0;background:#fff;color:#e11d48;font-size:12.5px;font-family:\'Onest\',sans-serif;cursor:pointer')}
+          >
+            Прибрати з дошки
+          </button>
+        )}
+
         {/* Treatment-plan review (only on the «План лікування» stage) */}
         {sel.planReview?.onPlan && <PlanReview sel={sel} />}
 

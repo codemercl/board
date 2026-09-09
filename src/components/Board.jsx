@@ -125,6 +125,9 @@ function PatientCard({ p, dnd }) {
             Гарячий
           </span>
         )}
+        {p.addedManually && (
+          <span style={css('font-size:10.5px;color:#7c8aa0;background:#eef2f7;padding:1px 5px;border-radius:5px;flex:none')}>додано вручну</span>
+        )}
       </div>
 
       <div style={css('display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:500;color:#34455e')}>
