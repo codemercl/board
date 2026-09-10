@@ -10,6 +10,7 @@ import Board from './components/Board.jsx'
 import PatientPanel from './components/PatientPanel.jsx'
 import CrmFeed from './components/CrmFeed.jsx'
 import HelpModal from './components/HelpModal.jsx'
+import AddPatientModal from './components/AddPatientModal.jsx'
 import UsersAdmin from './components/UsersAdmin.jsx'
 import LoginScreen from './components/LoginScreen.jsx'
 
@@ -44,6 +45,7 @@ export default function App() {
   const [authReady, setAuthReady] = useState(false)
   const [loginState, setLoginState] = useState({ busy: false, error: null })
   const [helpOpen, setHelpOpen] = useState(false)
+  const [addStage, setAddStage] = useState(null) // stage id the add-patient modal targets; null = closed
 
   const doLogout = useCallback(() => {
     api.logout()
@@ -173,6 +175,18 @@ export default function App() {
     catch (e) { if (mounted.current) setError(e.message); throw e }
   }, [applyBoard])
 
+  const searchPatients = useCallback((q) => api.searchPatients(q), [])
+
+  const placePatient = useCallback(async (id, stage) => {
+    try { applyBoard(await api.placePatient(id, stage)) }
+    catch (e) { if (mounted.current) setError(e.message); throw e }
+  }, [applyBoard])
+
+  const setPatientManual = useCallback(async (id, manual) => {
+    try { applyBoard(await api.setPatientManual(id, manual)) }
+    catch (e) { if (mounted.current) setError(e.message); throw e }
+  }, [applyBoard])
+
   const view = computeView(state, DEFAULT_PROPS, setState, {
     patients: board.patients,
     admins: board.admins,
@@ -184,6 +198,10 @@ export default function App() {
     setPlanResponsibles,
     planSignoff,
     planPostpone,
+    searchPatients,
+    placePatient,
+    setPatientManual,
+    openAddPatient: (stage) => setAddStage(stage),
     isAdmin: !!(me && me.canMove),
     allowedStages: me ? me.stages : null,
     me,
@@ -244,6 +262,7 @@ export default function App() {
         )}
       </div>
       {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
+      {addStage && <AddPatientModal view={view} stage={addStage} onClose={() => setAddStage(null)} />}
     </>
   )
 }

@@ -8,6 +8,7 @@
     "dev:web": "vite",
     "dev:api": "node --watch server/index.js",
     "server": "node server/index.js",
+    "test": "node server/bot.test.mjs && node server/board.test.mjs",
     "build": "vite build",
     "start": "node server/index.js",
     "preview": "vite preview"

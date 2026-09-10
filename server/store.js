@@ -1,6 +1,6 @@
 import { config, isLive } from './config.js'
 import { fetchClinicSnapshot } from './clinicCards.js'
-import { buildLive, assemble } from './mapper.js'
+import { buildLive, buildDirectory, assemble } from './mapper.js'
 import { buildMock } from './mockData.js'
 import { getAllPositions, ensureMissingPositions, getConversionStats, getCache, setCache } from './db.js'
 import { recentEvents } from './notify.js'
@@ -17,14 +17,25 @@ let inflight = null
 
 const fresh = (s) => s && Date.now() - s.at < config.cacheTtlMs
 
+// `directory` is 100% derivable from seeds + closedSeeds — buildDirectory()
+// (server/mapper.js) is the single place that shape is ever built, called
+// here on BOTH the fresh-pull path and the disk-cache path below. That is
+// what guarantees a warm-memory snapshot and one rebuilt after a cold start
+// are byte-identical (same content, same order): neither buildLive nor
+// buildMock builds a directory of its own to (potentially) disagree with.
+// It also means the disk cache row itself never carries the field — at
+// ~5000 patients that would roughly double the row's size (~3.75MB), parsed
+// on every cold-lambda request for no reason.
 async function pullFromClinicCards() {
   if (!isLive) {
-    const { seeds, rawNotifs } = buildMock()
-    return { seeds, rawNotifs, updatedAt: new Date().toISOString(), source: 'mock', at: Date.now() }
+    const { seeds, closedSeeds, rawNotifs } = buildMock()
+    const directory = buildDirectory(seeds, closedSeeds)
+    return { seeds, closedSeeds, directory, rawNotifs, updatedAt: new Date().toISOString(), source: 'mock', at: Date.now() }
   }
   const snap = await fetchClinicSnapshot()
-  const { seeds, rawNotifs } = buildLive(snap)
-  return { seeds, rawNotifs, updatedAt: new Date().toISOString(), source: 'live', at: Date.now() }
+  const { seeds, closedSeeds, rawNotifs } = buildLive(snap)
+  const directory = buildDirectory(seeds, closedSeeds)
+  return { seeds, closedSeeds, directory, rawNotifs, updatedAt: new Date().toISOString(), source: 'live', at: Date.now() }
 }
 
 async function readDiskCache() {
@@ -32,6 +43,15 @@ async function readDiskCache() {
     const row = await getCache(SNAP_KEY)
     if (!row) return null
     const s = JSON.parse(row.value)
+    // Guard against rows written before closedSeeds existed: without this, the
+    // first request after deploy would throw on an undefined `.filter`.
+    s.seeds = s.seeds || []
+    s.closedSeeds = s.closedSeeds || []
+    // `directory` is never stored (see the comment above) — rebuild it here,
+    // via the same buildDirectory() call the fresh-pull path uses. This also
+    // covers old rows that happen to still carry a stored one: it is ignored
+    // and rebuilt the same way, so behaviour is identical either way.
+    s.directory = buildDirectory(s.seeds, s.closedSeeds)
     s.at = Date.parse(row.fetched_at)
     return s
   } catch {
@@ -45,7 +65,10 @@ async function refresh() {
     const s = await pullFromClinicCards()
     mem = s
     try {
-      await setCache(SNAP_KEY, JSON.stringify({ seeds: s.seeds, rawNotifs: s.rawNotifs, updatedAt: s.updatedAt, source: s.source }), s.updatedAt)
+      await setCache(SNAP_KEY, JSON.stringify({
+        seeds: s.seeds, closedSeeds: s.closedSeeds,
+        rawNotifs: s.rawNotifs, updatedAt: s.updatedAt, source: s.source,
+      }), s.updatedAt)
     } catch {
       /* cache write is best-effort */
     }
@@ -73,7 +96,7 @@ async function getSnapshot(force = false) {
     // Serve the freshest thing we have, flagged with the error.
     const stale = mem || (await readDiskCache())
     if (stale) return { ...stale, error: e.message }
-    return { seeds: [], rawNotifs: [], updatedAt: new Date().toISOString(), source: isLive ? 'live' : 'mock', error: e.message, at: Date.now() }
+    return { seeds: [], closedSeeds: [], directory: [], rawNotifs: [], updatedAt: new Date().toISOString(), source: isLive ? 'live' : 'mock', error: e.message, at: Date.now() }
   }
 }
 
@@ -110,16 +133,29 @@ export async function getBoard(force = false) {
   const known = await getAllPositions()
   const inserted = await ensureMissingPositions(seeds, known)
   const positions = inserted ? await getAllPositions() : known
+  // Closed patients an admin pulled back onto the board by hand. They are not in
+  // `seeds` (buildLive keeps them apart) and deliberately never reach
+  // ensureMissingPositions — only the ones already flagged are merged back in.
+  const manualClosed = (snap.closedSeeds || []).filter((s) => positions.get(String(s.id))?.manual)
+  const allSeeds = manualClosed.length ? [...seeds, ...manualClosed] : seeds
   const conversion = await getConversionStats()
   // Live workflow events (plan assigned / signed off / postponed / overdue)
   // ride at the top of the feed, ahead of the CRM import notifications.
   const events = recentEvents()
   const notifs = [...events, ...(snap.rawNotifs || [])].slice(0, 12)
-  return assemble(seeds, notifs, {
+  return assemble(allSeeds, notifs, {
     positions,
     conversion,
     updatedAt: snap.updatedAt,
     source: snap.source,
     error: snap.error || null,
   })
+}
+
+// Compact { id, name, phone, closed } for every Clinic Cards patient — the
+// source for the manual-add search. Served from the same cached snapshot as the
+// board, so a search costs no extra CRM calls.
+export async function getDirectory() {
+  const snap = await getSnapshot(false)
+  return snap.directory || []
 }

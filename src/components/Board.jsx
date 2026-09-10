@@ -125,6 +125,9 @@ function PatientCard({ p, dnd }) {
             Гарячий
           </span>
         )}
+        {p.addedManually && (
+          <span style={css('font-size:10.5px;color:#7c8aa0;background:#eef2f7;padding:1px 5px;border-radius:5px;flex:none')}>додано вручну</span>
+        )}
       </div>
 
       <div style={css('display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:500;color:#34455e')}>
@@ -264,6 +267,15 @@ function Column({ col, filterKey, dnd }) {
             <span style={css("min-width:22px;height:21px;padding:0 7px;border-radius:7px;background:rgba(255,255,255,.78);color:#46566e;font:600 11.5px/21px 'JetBrains Mono',monospace;text-align:center;flex:none")}>
               {col.count}
             </span>
+            {col.canAdd && (
+              <button
+                onClick={col.openAdd}
+                title="Додати пацієнта з Clinic Cards"
+                style={css("width:21px;height:21px;border:none;border-radius:6px;background:rgba(255,255,255,.78);color:#46566e;font:700 14px/21px 'Onest',sans-serif;cursor:pointer;flex:none;padding:0")}
+              >
+                +
+              </button>
+            )}
             <button
               className="cc-col-collapse"
               onClick={col.toggle}

@@ -128,6 +128,19 @@ function betterVisit(a, b, nowMs) {
   return a.startMs >= b.startMs ? a : b
 }
 
+// Compact { id, name, phone, closed } directory entry for the manual-add
+// search — the ONLY place this shape is ever built. Both buildLive and
+// buildMock hand this the seeds/closedSeeds they produced, and store.js
+// calls it again to rebuild the directory after a disk-cache read, so a
+// warm-memory snapshot and one rebuilt after a cold start are byte-identical
+// (same content, same order) instead of drifting apart.
+export function buildDirectory(seeds, closedSeeds) {
+  return [
+    ...(seeds || []).map((s) => ({ id: s.id, name: s.name, phone: s.phone, closed: false })),
+    ...(closedSeeds || []).map((s) => ({ id: s.id, name: s.name, phone: s.phone, closed: true })),
+  ]
+}
+
 export function buildLive(snapshot) {
   const { patients = [], statuses = [], staff = [], plans = [], visits = [] } = snapshot
   const now = new Date()
@@ -175,9 +188,12 @@ export function buildLive(snapshot) {
   for (const p of plans) planById.set(String(p.plan_id), { name: p.plan_name, doctorId: String(p.doctor_id) })
 
   const seeds = []
+  const closedSeeds = []
   for (const p of patients) {
     const pStatuses = Array.isArray(p.statuses) ? p.statuses.map(String) : []
-    if (pStatuses.some((id) => closedStatusIds.has(id))) continue // "closed" → hidden
+    // Closed patients no longer vanish here: they go to closedSeeds so an admin
+    // can pull one back onto the board by hand (see store.getBoard).
+    const closed = pStatuses.some((id) => closedStatusIds.has(id))
 
     const id = String(p.patient_id)
     const name = joinName(p.firstname, p.lastname, p.code)
@@ -202,7 +218,7 @@ export function buildLive(snapshot) {
     const note = (p.important_note || '').trim() || (p.source ? `Джерело: ${p.source}` : '') || (p.note || '').trim()
     const created = parseDate(p.date_created)
 
-    seeds.push({
+    const seed = {
       id,
       name,
       phone: formatPhone(p.phone || p.phone2),
@@ -220,7 +236,9 @@ export function buildLive(snapshot) {
       defaultStage: FIRST_STAGE,
       createdAt: created ? created.toISOString() : null,
       slaOverride: null,
-    })
+    }
+    if (closed) closedSeeds.push(seed)
+    else seeds.push(seed)
   }
 
   // Feed: newest imported patients.
@@ -235,7 +253,7 @@ export function buildLive(snapshot) {
       time: relativeTime(s.createdAt),
     }))
 
-  return { seeds, rawNotifs }
+  return { seeds, closedSeeds, rawNotifs }
 }
 
 // ─── treatment-plan review → display state ────────────────────────────────────
@@ -325,7 +343,10 @@ export function assemble(seeds, rawNotifs, meta = {}) {
 
     // Display window: a month from заявка creation; each stage advance re-anchors
     // it to the advance date (= entered_at). Out-of-window patients drop off.
-    const anchorMs = movedByUs ? enteredMs : (createdMs ?? enteredMs)
+    // Manually placed cards anchor on entered_at even when the chosen column is
+    // the first one: otherwise `movedByUs` stays false, the anchor falls back to
+    // a заявка created months ago, and the card vanishes the instant it is added.
+    const anchorMs = (pos.manual || movedByUs) ? enteredMs : (createdMs ?? enteredMs)
     const windowEndMs = anchorMs + windowMs
     if (now > windowEndMs) continue
 
@@ -401,6 +422,7 @@ export function assemble(seeds, rawNotifs, meta = {}) {
       admin: seed.admin.key,
       hot,
       frozen,
+      manual: !!pos.manual, // closed patient an admin pulled back onto the board by hand
       synced: seed.synced,
       daysInStage: Math.floor(daysInStage),
       isStuck,

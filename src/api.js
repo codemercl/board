@@ -126,6 +126,27 @@ export function listStaff() {
   return req('/api/staff', { headers: { ...authHeaders() } })
 }
 
+// ─── Manually add an old (offline) patient onto the board ──────────────────
+export function searchPatients(q) {
+  return req(`/api/patients/search?q=${encodeURIComponent(q)}`, { headers: { ...authHeaders() } })
+}
+
+export function placePatient(id, stage) {
+  return req(`/api/patients/${encodeURIComponent(id)}/place`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ stage }),
+  })
+}
+
+export function setPatientManual(id, manual) {
+  return req(`/api/patients/${encodeURIComponent(id)}/manual`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ manual }),
+  })
+}
+
 function planPost(id, action, body) {
   return req(`/api/patients/${encodeURIComponent(id)}/plan/${action}`, {
     method: 'POST',

@@ -4,14 +4,15 @@ import express from 'express'
 import cors from 'cors'
 import compression from 'compression'
 import { config, isLive, STAGE_IDS, BOT_ROLE_LABEL } from './config.js'
-import { getBoard } from './store.js'
+import { getBoard, getDirectory } from './store.js'
 import {
-  setStage, setHot, setFrozen, dismissFollowup,
+  setStage, setHot, setFrozen, dismissFollowup, setManual,
   ensureBootstrapAdmin, listUsers, getUserById, getUserByUsername,
   createUser, updateUser, deleteUser,
   getAllPositions, getPlanReview, setPlanResponsibles, addPlanSignoff, postponePlan,
   listBotStaff,
 } from './db.js'
+import { searchDirectory } from './directory.js'
 import { verifyPassword, signToken, verifyToken, bearerFrom, toPublicUser } from './auth.js'
 import { emitEvent } from './notify.js'
 import { getBot, initBot, setTelegramWebhook } from './bot.js'
@@ -206,6 +207,51 @@ app.post('/api/patients/:id/frozen', requireMove, wrap(async (req, res) => {
 app.post('/api/patients/:id/dismiss-followup', requireMove, wrap(async (req, res) => {
   const { id } = req.params
   await dismissFollowup(id, (req.body && req.body.visitAt) || null)
+  const board = await getBoard(false)
+  res.json({ result: 'success', data: filterBoard(board, req.user) })
+}))
+
+// ─── Manual add from Clinic Cards ───────────────────────────────────────────
+// Any patient in Clinic Cards — including one closed months ago — can be found
+// and dropped into a column by hand. Search runs over the cached directory, so
+// it costs no extra CRM calls.
+app.get('/api/patients/search', requireMove, wrap(async (req, res) => {
+  const directory = await getDirectory()
+  const board = await getBoard(false)
+  const onBoardIds = new Set(board.patients.map((p) => String(p.id)))
+  res.json({ result: 'success', data: searchDirectory(directory, req.query.q, { onBoardIds }) })
+}))
+
+// Place a patient into a column by hand and flag the card as manual, so the
+// closed-status filter and the creation-anchored display window stop hiding it.
+app.post('/api/patients/:id/place', requireMove, wrap(async (req, res) => {
+  const { id } = req.params
+  const stage = (req.body && req.body.stage) || ''
+  if (!STAGE_IDS.has(stage)) return fail(res, 400, 'Невідома колонка')
+  if (req.user.stages && !req.user.stages.includes(stage)) {
+    return fail(res, 403, 'Ця колонка недоступна для вашої ролі')
+  }
+  const directory = await getDirectory()
+  if (!directory.some((d) => String(d.id) === String(id))) {
+    return fail(res, 404, 'Пацієнта не знайдено в Clinic Cards')
+  }
+  // Resurrecting a card onto the board is not a stage transition — the stale
+  // position row it may already carry (from back when it was last visible)
+  // must not be measured as an SLA breach in the conversion stats.
+  await setStage(id, stage, { recordTransition: false })
+  await setManual(id, true)
+  const board = await getBoard(false)
+  res.json({ result: 'success', data: filterBoard(board, req.user) })
+}))
+
+// Clear (or re-set) the manual flag. Clearing returns the card to the normal
+// rules: a closed patient drops off, an open one stays until the window ends.
+// The position row and plan_review are kept, so re-adding restores the state.
+app.post('/api/patients/:id/manual', requireMove, wrap(async (req, res) => {
+  const { id } = req.params
+  const { manual } = req.body || {}
+  if (typeof manual !== 'boolean') return fail(res, 400, 'Поле manual має бути true або false')
+  await setManual(id, manual)
   const board = await getBoard(false)
   res.json({ result: 'success', data: filterBoard(board, req.user) })
 }))

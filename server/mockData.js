@@ -103,5 +103,29 @@ export function buildMock() {
       slaOverride: { sla: p.sla, slaState: p.slaState },
     }
   })
-  return { seeds, rawNotifs: RAW_NOTIFS }
+  // One closed demo patient so the manual-add flow is exercisable without a
+  // live Clinic Cards key (the board hides it until an admin places it).
+  const closedSeeds = [{
+    id: 'mock-closed-1',
+    name: 'Закритий Пацієнт (демо)',
+    phone: '+380 50 000-11-22',
+    service: 'Лікування завершено торік',
+    comment: '',
+    dueVisitAt: null,
+    dueVisitNote: '',
+    doctor: '',
+    visit: '',
+    visitAt: null,
+    note: 'Демо: закрита картка для ручного додавання',
+    hot: false,
+    synced: false,
+    admin: { key: '_none', initials: '—', name: 'Не призначено', color: '#94a3b8' },
+    defaultStage: 'consult_scheduled',
+    createdAt: new Date(Date.now() - 200 * 86400000).toISOString(),
+    slaOverride: null,
+  }]
+  // directory is intentionally not built here — server/mapper.js's
+  // buildDirectory() is the single place that shape is ever constructed
+  // (see store.js), so a mock pull and a live pull stay byte-identical.
+  return { seeds, closedSeeds, rawNotifs: RAW_NOTIFS }
 }
