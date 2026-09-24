@@ -85,9 +85,12 @@ export const config = {
   authSecret: process.env.AUTH_SECRET || '',
   // Link to the patient's profile in the Clinic Cards web app. `{id}` is the
   // Clinic Cards patient_id. Default: same host as the API, sans `/api`.
+  // The card opens the patient inside the Clinic Cards cabinet SPA, whose route
+  // lives in the URL fragment: /cabinet#patients/stages/{id}. A bare
+  // /patients/{id} resolves to a different (public) page, so keep the fragment.
   patientUrlTemplate:
     process.env.CLINIC_CARDS_PATIENT_URL ||
-    `${(process.env.CLINIC_CARDS_BASE_URL || 'https://cliniccards.com/api').replace(/\/+$/, '').replace(/\/api$/, '')}/patients/{id}`,
+    `${(process.env.CLINIC_CARDS_BASE_URL || 'https://cliniccards.com/api').replace(/\/+$/, '').replace(/\/api$/, '')}/cabinet#patients/stages/{id}`,
 }
 
 // HMAC key for signing auth tokens. Falls back to a value derived from the

@@ -232,6 +232,15 @@ async function run() {
 
   server.close()
 
+  console.log('11) the card links into the Clinic Cards cabinet SPA')
+  const linkBoard = await getBoard(false)
+  const anyCard = linkBoard.patients.find((p) => !String(p.id).startsWith('mock-closed'))
+  ok(/\/cabinet#patients\/stages\//.test(anyCard.ccUrl),
+     'ccUrl uses the cabinet route with the id in the fragment')
+  ok(!/cliniccards\.com\/patients\//.test(anyCard.ccUrl),
+     'ccUrl is not the bare /patients/{id} page, which opens something else')
+  ok(anyCard.ccUrl.endsWith(String(anyCard.id)), 'ccUrl ends with the patient id')
+
   console.log(`\n✅ ${passed} checks passed`)
 }
 
