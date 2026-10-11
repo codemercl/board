@@ -377,12 +377,17 @@ function createPostgresBackend() {
       const at = nowIso()
       const uname = username != null ? String(username).replace(/^@/, '') : null
       // Preserve existing fields when a caller passes only some of them.
+      // COALESCE only skips NULL, so the omitted fields must arrive as NULL here.
+      // Passing EXCLUDED.* with '' defaults (as this did) wiped a person's role
+      // on every /start, because COALESCE('', role) is ''. New rows still get ''.
+      const nextName = name == null ? null : String(name)
+      const nextRole = role == null ? null : String(role)
       await sql`INSERT INTO bot_staff (chat_id, name, role, username, created_at)
-                VALUES (${id}, ${name || ''}, ${role || ''}, ${uname}, ${at})
+                VALUES (${id}, ${nextName || ''}, ${nextRole || ''}, ${uname}, ${at})
                 ON CONFLICT (chat_id) DO UPDATE SET
-                  name = COALESCE(EXCLUDED.name, bot_staff.name),
-                  role = COALESCE(EXCLUDED.role, bot_staff.role),
-                  username = COALESCE(EXCLUDED.username, bot_staff.username)`
+                  name = COALESCE(${nextName}, bot_staff.name),
+                  role = COALESCE(${nextRole}, bot_staff.role),
+                  username = COALESCE(${uname}, bot_staff.username)`
       return await this.getBotStaff(id)
     },
     async listUsers() {

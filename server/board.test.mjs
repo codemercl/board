@@ -241,6 +241,19 @@ async function run() {
      'ccUrl is not the bare /patients/{id} page, which opens something else')
   ok(anyCard.ccUrl.endsWith(String(anyCard.id)), 'ccUrl ends with the patient id')
 
+  console.log('12) upsertBotStaff keeps fields a caller omits')
+  await db.upsertBotStaff({ chatId: '9001', role: 'doctor', name: 'Лікар Тест', username: 'lt' })
+  // This is exactly what /start sends: name + username, no role. The role must
+  // survive, or the person silently stops being a лікар.
+  await db.upsertBotStaff({ chatId: '9001', username: 'lt', name: 'Лікар Тест' })
+  let staffRow = await db.getBotStaff('9001')
+  ok(staffRow.role === 'doctor', 'role survives a role-less upsert (what /start does)')
+  await db.upsertBotStaff({ chatId: '9001', role: 'doctor' })
+  staffRow = await db.getBotStaff('9001')
+  ok(staffRow.name === 'Лікар Тест', 'name survives a name-less upsert')
+  ok((await db.getBotStaffByRole('doctor')).some((r) => r.chat_id === '9001'),
+     'and the лікар stays findable by role — the board assignment picker reads this')
+
   console.log(`\n✅ ${passed} checks passed`)
 }
 

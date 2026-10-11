@@ -32,6 +32,10 @@ const OVERSEER_ROLES = new Set(['head_doctor', 'kerivnyk'])
 // for /my, so nobody has to remember or type the command. Telegram keeps it above
 // the input field until it is replaced, and it cannot coexist with inline buttons
 // in the same message — so it rides on messages that carry no inline keyboard.
+// A pending sign-off is honoured only this long. Without an expiry, a лікар who
+// taps ✅ and never writes the comment would have some unrelated message days
+// later silently recorded as that plan's comment.
+const PENDING_TTL_MS = 12 * 3600000
 const MY_BUTTON = '📋 Мої плани'
 const myButtonKeyboard = { keyboard: [[{ text: MY_BUTTON }]], resize_keyboard: true, is_persistent: true }
 // "2026-07-28T14:30:00Z" → "28.07 о 14:30" (local server time).
@@ -129,11 +133,14 @@ export function createBot(deps) {
 
   // /my — a лікар's own plans, split into: ✍️ треба написати (tappable ✅/⏸),
   // 📝 написані й чекають підтвердження головлікаря, ✅ підтверджені.
-  async function myPlans(chatId) {
+  async function myPlans(chatId, pending) {
     const id = String(chatId)
     const cards = await listReviewCards()
     const mine = cards.filter((c) => myEntry(c, id))
-    if (!mine.length) return send(chatId, '📋 У вас немає призначених планів зараз.')
+    const waitingNote = pending?.mode === 'signoff'
+      ? `\n\n✍️ Ви ще не дописали коментар до «${trunc(pending.patientName)}» — надішліть його наступним повідомленням, або /skip щоб скасувати.`
+      : ''
+    if (!mine.length) return send(chatId, '📋 У вас немає призначених планів зараз.' + waitingNote)
     const toWrite = mine.filter((c) => c.stage === 'plan_wait' && !myEntry(c, id)?.ready)
     const awaiting = mine.filter((c) => c.stage === 'plan_wait' && myEntry(c, id)?.ready)
     const confirmed = mine.filter((c) => c.stage === 'plan')
@@ -141,12 +148,12 @@ export function createBot(deps) {
     if (awaiting.length) text += '\n\n📝 Написані, чекають підтвердження головлікаря:\n' + awaiting.slice(0, 15).map((c) => `• ${trunc(c.name)}`).join('\n')
     // Confirmed plans are deliberately NOT listed: they are finished work and only
     // make the list harder to read. The count in the summary line is enough.
-    if (!toWrite.length) return send(chatId, text + '\n\n👍 Немає планів, які треба написати.', { reply_markup: myButtonKeyboard })
+    if (!toWrite.length) return send(chatId, text + '\n\n👍 Немає планів, які треба написати.' + waitingNote, { reply_markup: myButtonKeyboard })
     const kb = toWrite.slice(0, 25).map((c) => ([
       { text: `✅ ${trunc(c.name)}`, callback_data: `${CB.ready}:${c.id}` },
       ...(c.ccUrl ? [{ text: '🔗', url: c.ccUrl }] : []),
     ]))
-    return send(chatId, text + '\n\n✍️ Треба написати — тисніть ✅ (готовий). 🔗 — картка в Clinic Cards:', { reply_markup: { inline_keyboard: kb } })
+    return send(chatId, text + waitingNote + '\n\n✍️ Треба написати — тисніть ✅ (готовий). 🔗 — картка в Clinic Cards:', { reply_markup: { inline_keyboard: kb } })
   }
 
   // /all — overseer view. Per лікар: ✍️ до написання / 📝 чекають підтвердження /
@@ -210,7 +217,14 @@ export function createBot(deps) {
     const text = trim(msg.text)
     const username = msg.from?.username || ''
     const tgName = trim([msg.from?.first_name, msg.from?.last_name].filter(Boolean).join(' ')) || username || ''
-    const state = await getPending(chatId)
+    // Read-only commands below must NOT clear this: a лікар who taps ✅ and then
+// checks their list would otherwise have the comment they type next discarded.
+    const raw = await getPending(chatId)
+    // Rows written before the expiry existed carry no `at` — treat them as live
+    // rather than throwing away a conversation that is mid-flight on deploy.
+    const expired = !!raw?.at && Date.now() - raw.at > PENDING_TTL_MS
+    if (expired) await clearPending(chatId)
+    const state = expired ? null : raw
 
     if (text === '/start' || /^\/register\b/.test(text)) {
       // Capture the name + username right away (name from the Telegram profile);
@@ -222,11 +236,15 @@ export function createBot(deps) {
 
     // Commands work regardless of any pending sign-off conversation.
     if (text === MY_BUTTON || /^\/(my|plans)\b/.test(text)) {
+      return myPlans(chatId, state)
+    }
+    if (/^\/skip\b/.test(text)) {
       await clearPending(chatId)
-      return myPlans(chatId)
+      return send(chatId, state?.mode === 'signoff'
+        ? `Скасовано. План «${trunc(state.patientName)}» не підтверджено — натисніть ✅, коли будете готові.`
+        : 'Немає чого скасовувати.')
     }
     if (/^\/all\b/.test(text)) {
-      await clearPending(chatId)
       const staff = await getBotStaff(chatId)
       if (!OVERSEER_ROLES.has(staff?.role)) {
         return send(chatId, 'Команда /all доступна лише головному лікарю або керівнику.')
@@ -235,10 +253,9 @@ export function createBot(deps) {
       return send(chatId, ov.text, ov.keyboard ? { reply_markup: { inline_keyboard: ov.keyboard } } : undefined)
     }
     if (/^\/help\b/.test(text)) {
-      await clearPending(chatId)
       const staff = await getBotStaff(chatId)
       let t = 'Команди:\n/start — реєстрація / зміна ролі'
-      if (staff?.role === 'doctor') t += '\n/my — усі ваші плани з кнопками'
+      if (staff?.role === 'doctor') t += '\n/my — усі ваші плани з кнопками\n/skip — скасувати незавершений коментар'
       if (OVERSEER_ROLES.has(staff?.role)) t += '\n/all — статус усіх лікарів'
       t += '\n/help — ця довідка'
       return send(chatId, t)
@@ -268,7 +285,9 @@ export function createBot(deps) {
       return
     }
     if (who.role === 'doctor') {
-      await send(chatId, '☝️ Читайте підказки: план підтверджується кнопкою ✅ (текст бот не зараховує). Текст — лише коментар після натискання ✅/⏸. Ось ваші плани:')
+      await send(chatId, expired
+        ? '⌛ Ви натиснули ✅ понад 12 год тому, тому цей текст не зарахований як коментар. Натисніть ✅ ще раз і одразу надішліть коментар. Ось ваші плани:'
+        : '☝️ Читайте підказки: план підтверджується кнопкою ✅ (текст бот не зараховує). Текст — лише коментар після натискання ✅. Ось ваші плани:')
       return myPlans(chatId)
     }
     if (OVERSEER_ROLES.has(who.role)) {
@@ -327,8 +346,14 @@ export function createBot(deps) {
     if (!isResponsible) return send(chatId, 'Вас не призначено відповідальним за цей план.')
 
     if (action === CB.ready) {
-      await setPending(chatId, { mode: 'signoff', patientId, patientName })
-      return send(chatId, `Напишіть коментар до плану лікування (${patientName}):`)
+      const prev = await getPending(chatId)
+      await setPending(chatId, { mode: 'signoff', patientId, patientName, at: Date.now() })
+      // Tapping ✅ on a second patient replaces the first pending comment. Say so —
+      // silently dropping the лікар's unfinished work is what caused trouble before.
+      const warn = prev?.mode === 'signoff' && String(prev.patientId) !== String(patientId)
+        ? `⚠️ Коментар до «${trunc(prev.patientName)}» не зарахований — той план лишився непідтвердженим.\n\n`
+        : ''
+      return send(chatId, `${warn}Напишіть коментар до плану лікування (${patientName}).\n/skip — скасувати.`)
     }
   }
 
