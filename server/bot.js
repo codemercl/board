@@ -1,6 +1,6 @@
 import { config, BOT_ROLES, BOT_ROLE_LABEL, isBotRole } from './config.js'
 import {
-  getPlanReview, addPlanSignoff, postponePlan, claimPlanNotification,
+  getPlanReview, addPlanSignoff, claimPlanNotification,
   getBotStaff, getBotStaffByRole, upsertBotStaff,
   getPatientStage, setStage,
   getBotState, setBotState, clearBotState,
@@ -11,13 +11,13 @@ import { emitEvent } from './notify.js'
 //   • /start → the person picks their ROLE with buttons (Керівник / Головний
 //     лікар / Лікар). The bot stores role + chat_id (personal DM address,
 //     captured automatically). Лікарі are the ones a plan is required from.
-//   • when a plan is assigned, each responsible (лікар) gets a DM with «Готово»
-//     / «Відкласти» buttons.
-//   • tapping a button → the bot asks for a comment; the reply is the sign-off
-//     (or the mandatory postpone reason). The board updates and the move gate
-//     opens once everyone confirmed.
-//   • plan ready → the "ready" role is DM'd (Головний лікар). Plan postponed /
-//     overdue → the "issue" role is DM'd. Routing is by role, set in config.
+//   • when a plan is assigned, each responsible (лікар) gets a DM with a
+//     «Готово» button and a 🔗 link to the patient's card in Clinic Cards.
+//   • tapping «Готово» → the bot asks for a comment; the reply is the sign-off.
+//     The board updates and the move gate opens once everyone confirmed.
+//     Postponing is NOT in the bot — an admin does that on the board.
+//   • plan ready → the "ready" role is DM'd (Головний лікар). Plan postponed
+//     (from the board) / overdue → the "issue" role is DM'd. Routing is by role.
 //   • a periodic sweep pings responsibles 24h/4h before the visit, on the 48h
 //     overdue, and 24h after a postpone.
 //
@@ -26,8 +26,14 @@ import { emitEvent } from './notify.js'
 
 const CB = { ready: 'rdy', postpone: 'pst', role: 'role', approve: 'apr' }
 const trim = (s) => String(s || '').trim()
-const trunc = (s, n = 22) => { const t = String(s || ''); return t.length > n ? t.slice(0, n - 1) + '…' : t }
+const trunc = (s, n = 40) => { const t = String(s || ''); return t.length > n ? t.slice(0, n - 1) + '…' : t }
 const OVERSEER_ROLES = new Set(['head_doctor', 'kerivnyk'])
+// Persistent reply keyboard for лікарі: one always-visible button that stands in
+// for /my, so nobody has to remember or type the command. Telegram keeps it above
+// the input field until it is replaced, and it cannot coexist with inline buttons
+// in the same message — so it rides on messages that carry no inline keyboard.
+const MY_BUTTON = '📋 Мої плани'
+const myButtonKeyboard = { keyboard: [[{ text: MY_BUTTON }]], resize_keyboard: true, is_persistent: true }
 // "2026-07-28T14:30:00Z" → "28.07 о 14:30" (local server time).
 const formatDeadline = (iso) => {
   const d = new Date(iso)
@@ -65,7 +71,7 @@ const allReadyOf = (review) => {
 export function createBot(deps) {
   const {
     send, answerCallback,
-    getPlanReview, addPlanSignoff, postponePlan, claimPlanNotification,
+    getPlanReview, addPlanSignoff, claimPlanNotification,
     getBotStaff, getBotStaffByRole, upsertBotStaff,
     getPatientStage, setStage,
     getPending, setPending, clearPending,
@@ -99,14 +105,17 @@ export function createBot(deps) {
     return people.length
   }
 
-  // Per-chat conversation state ({ mode: 'signoff'|'postpone', patientId,
+  // Per-chat conversation state ({ mode: 'signoff', patientId,
   // patientName }) lives in the store via getPending/setPending/clearPending,
   // so a "tap button → send comment" flow survives across serverless requests.
 
-  const buttons = (patientId) => ({
+  // One action plus a link: «готовий», and a bare icon opening the patient's card
+  // in Clinic Cards (same target as the link on the board). Postponing moved out
+  // of the bot entirely — it lives on the board now.
+  const buttons = (patientId, ccUrl) => ({
     inline_keyboard: [[
       { text: '✅ План готовий', callback_data: `${CB.ready}:${patientId}` },
-      { text: '⏸ Відкласти', callback_data: `${CB.postpone}:${patientId}` },
+      ...(ccUrl ? [{ text: '🔗', url: ccUrl }] : []),
     ]],
   })
 
@@ -130,13 +139,14 @@ export function createBot(deps) {
     const confirmed = mine.filter((c) => c.stage === 'plan')
     let text = `📋 Ваші плани: ✍️ ${toWrite.length} написати · 📝 ${awaiting.length} чекають підтвердження · ✅ ${confirmed.length} підтверджено`
     if (awaiting.length) text += '\n\n📝 Написані, чекають підтвердження головлікаря:\n' + awaiting.slice(0, 15).map((c) => `• ${trunc(c.name)}`).join('\n')
-    if (confirmed.length) text += '\n\n✅ Підтверджені:\n' + confirmed.slice(0, 10).map((c) => `• ${trunc(c.name)}`).join('\n') + (confirmed.length > 10 ? `\n… +${confirmed.length - 10}` : '')
-    if (!toWrite.length) return send(chatId, text + '\n\n👍 Немає планів, які треба написати.')
+    // Confirmed plans are deliberately NOT listed: they are finished work and only
+    // make the list harder to read. The count in the summary line is enough.
+    if (!toWrite.length) return send(chatId, text + '\n\n👍 Немає планів, які треба написати.', { reply_markup: myButtonKeyboard })
     const kb = toWrite.slice(0, 25).map((c) => ([
       { text: `✅ ${trunc(c.name)}`, callback_data: `${CB.ready}:${c.id}` },
-      { text: '⏸', callback_data: `${CB.postpone}:${c.id}` },
+      ...(c.ccUrl ? [{ text: '🔗', url: c.ccUrl }] : []),
     ]))
-    return send(chatId, text + '\n\n✍️ Треба написати — тисніть ✅ (готовий) або ⏸ (відкласти):', { reply_markup: { inline_keyboard: kb } })
+    return send(chatId, text + '\n\n✍️ Треба написати — тисніть ✅ (готовий). 🔗 — картка в Clinic Cards:', { reply_markup: { inline_keyboard: kb } })
   }
 
   // /all — overseer view. Per лікар: ✍️ до написання / 📝 чекають підтвердження /
@@ -210,8 +220,8 @@ export function createBot(deps) {
       return send(chatId, 'Вітаю! Оберіть вашу роль:', { reply_markup: roleButtons() })
     }
 
-    // Commands work regardless of any pending sign-off/postpone conversation.
-    if (/^\/(my|plans)\b/.test(text)) {
+    // Commands work regardless of any pending sign-off conversation.
+    if (text === MY_BUTTON || /^\/(my|plans)\b/.test(text)) {
       await clearPending(chatId)
       return myPlans(chatId)
     }
@@ -244,20 +254,8 @@ export function createBot(deps) {
       const cards = await listReviewCards()
       const left = cards.filter((c) => c.stage === 'plan_wait'
         && (c.planReview?.responsibles || []).some((r) => String(r.id) === chatId && !r.ready)).length
-      await send(chatId, `✅ Дякую, план позначено готовим.\n${left > 0 ? `Залишилось написати планів: ${left}. /my — показати всі.` : 'Це був останній ваш план 👍'}`)
+      await send(chatId, `✅ Дякую, план позначено готовим.\n${left > 0 ? `Залишилось написати планів: ${left}.` : 'Це був останній ваш план 👍'}`, { reply_markup: myButtonKeyboard })
       await maybeAnnounceReady(state.patientId, state.patientName, review)
-      return
-    }
-
-    if (state?.mode === 'postpone') {
-      await clearPending(chatId)
-      const staff = await getBotStaff(chatId)
-      const name = staff?.name || `chat ${chatId}`
-      const review = await postponePlan(state.patientId, { comment: text, by: chatId, name })
-      emitEvent({ type: 'plan_postponed', text: `План відкладено — ${state.patientName || state.patientId}`, sub: `${name}: ${text.slice(0, 120)}`, patientId: state.patientId, targets: review.responsibles.map((r) => r.id) })
-      await send(chatId, '⏸ План відкладено. Причину збережено.')
-      // "Не готов" → escalate to the issue role (Головний лікар by default).
-      await notifyByRole(issueRole, `⚠️ План НЕ готовий (відкладено) — ${state.patientName || state.patientId}\n${name}: ${text}`)
       return
     }
 
@@ -291,11 +289,18 @@ export function createBot(deps) {
       const tgName = trim([cb.from?.first_name, cb.from?.last_name].filter(Boolean).join(' ')) || username || undefined
       await upsertBotStaff({ chatId, role: arg, username, name: tgName })
       const extra = arg === 'doctor'
-        ? ' Коли вам призначать план — надішлю сюди кнопки «Готово»/«Відкласти». /my — усі ваші плани.'
+        ? ' Коли вам призначать план — надішлю сюди кнопку «✅ План готовий» і 🔗 на картку пацієнта. Кнопка «📋 Мої плани» знизу — усі ваші плани.'
         : OVERSEER_ROLES.has(arg)
           ? ' Ви отримуватимете підсумки по планах. /all — статус усіх лікарів.'
           : ' Ви отримуватимете сповіщення по планах відповідно до ролі.'
-      return send(chatId, `Готово! Ваша роль: ${roleLabel(arg)}.${extra}`)
+      return send(chatId, `Готово! Ваша роль: ${roleLabel(arg)}.${extra}`,
+        arg === 'doctor' ? { reply_markup: myButtonKeyboard } : undefined)
+    }
+
+    // Legacy: the ⏸ button was removed from the bot (postponing happens on the
+    // board). Taps on buttons still sitting in old chat history land here.
+    if (action === CB.postpone) {
+      return send(chatId, '⏸ Відкладення плану тепер робиться на дошці, а не в боті.')
     }
 
     const patientId = arg
@@ -325,10 +330,6 @@ export function createBot(deps) {
       await setPending(chatId, { mode: 'signoff', patientId, patientName })
       return send(chatId, `Напишіть коментар до плану лікування (${patientName}):`)
     }
-    if (action === CB.postpone) {
-      await setPending(chatId, { mode: 'postpone', patientId, patientName })
-      return send(chatId, `Вкажіть причину відкладення плану (${patientName}) — обовʼязково:`)
-    }
   }
 
   // On assignment: DM each лікар the plan (with deadline + action buttons), and
@@ -339,7 +340,7 @@ export function createBot(deps) {
     const termLine = deadlineLine(opts.deadlineAt)
     const visitLine = opts.visit ? `\n📅 Візит: ${opts.visit}` : ''
     for (const r of list) {
-      await send(String(r.id), `🦷 На вас призначено план лікування:\n${patientName}${visitLine}${termLine}\n\nСкладіть план і натисніть «✅ План готовий».\n(/my — усі ваші плани)`, { reply_markup: buttons(patientId) })
+      await send(String(r.id), `🦷 На вас призначено план лікування:\n${patientName}${visitLine}${termLine}\n\nСкладіть план і натисніть «✅ План готовий».\n🔗 — картка пацієнта в Clinic Cards.`, { reply_markup: buttons(patientId, opts.ccUrl) })
     }
     const names = list.map((r) => r.name).join(', ')
     const heads = await getBotStaffByRole(readyRole)
@@ -411,7 +412,7 @@ export function createBot(deps) {
         if (quiet && !j.urgent) continue // held until morning (not claimed)
         if (!(await claimPlanNotification(card.id, j.key))) continue
         if (j.to === 'resp') {
-          for (const r of resp) { await send(String(r.id), j.text, { reply_markup: buttons(card.id) }); sent++ }
+          for (const r of resp) { await send(String(r.id), j.text, { reply_markup: buttons(card.id, card.ccUrl) }); sent++ }
         } else {
           sent += await notifyByRole(issueRole, j.text)
         }
@@ -521,7 +522,7 @@ export function initBot(boardDeps) {
   realBot = createBot({
     send: tgSend,
     answerCallback: tgAnswer,
-    getPlanReview, addPlanSignoff, postponePlan, claimPlanNotification,
+    getPlanReview, addPlanSignoff, claimPlanNotification,
     getBotStaff, getBotStaffByRole, upsertBotStaff,
     getPatientStage, setStage,
     getPending: getBotState, setPending: setBotState, clearPending: clearBotState,

@@ -13,7 +13,7 @@ export const boardDeps = {
     const board = await getBoard(false)
     return board.patients
       .filter((p) => p.stage === 'plan_wait')
-      .map((p) => ({ id: p.id, name: p.name, visit: p.visit, planReview: p.planReview }))
+      .map((p) => ({ id: p.id, name: p.name, visit: p.visit, ccUrl: p.ccUrl, planReview: p.planReview }))
   },
   // Cards relevant to the review workflow: being written (plan_wait) AND already
   // confirmed (plan). Drives /my and /all so doctors/head doctor can see which
@@ -22,6 +22,6 @@ export const boardDeps = {
     const board = await getBoard(false)
     return board.patients
       .filter((p) => p.stage === 'plan_wait' || p.stage === 'plan')
-      .map((p) => ({ id: p.id, name: p.name, stage: p.stage, visit: p.visit, planReview: p.planReview }))
+      .map((p) => ({ id: p.id, name: p.name, stage: p.stage, visit: p.visit, ccUrl: p.ccUrl, planReview: p.planReview }))
   },
 }
