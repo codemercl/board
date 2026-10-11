@@ -126,12 +126,13 @@ async function run() {
   await bot.handleUpdate(cb('5001', 'apr:p1'))
   ok(stages.get('p1') === 'plan', 'second approval is idempotent (already moved)')
 
-  console.log('7) Postpone → Головний лікар told it is NOT ready + reason')
+  console.log('7) The ⏸ button is gone from the bot — old ones explain where it went')
   seedReview('p2', [{ id: '1001', name: 'Андрій Федірко' }])
   await bot.handleUpdate(cb('1001', 'pst:p2'))
+  ok(/на дошці/i.test(lastTo('1001')?.text || ''), 'a stale ⏸ button says postponing moved to the board')
+  ok(!pending.has('1001'), 'and it does not open a comment conversation')
   await bot.handleUpdate(msg('1001', 'Чекаємо КТ', { username: 'andrii' }))
-  const nMsg = lastTo('5001')
-  ok(nMsg && /не готовий/i.test(nMsg.text) && /Чекаємо КТ/.test(nMsg.text), 'головний лікар got "НЕ готовий" with reason')
+  ok(reviews.get('p2').postpone === null, 'the next message is not recorded as a postpone reason')
 
   const dlFuture = new Date(Date.now() + 20 * 3600000).toISOString()
   const dlPast = new Date(Date.now() - 3 * 3600000).toISOString()
@@ -197,14 +198,14 @@ async function run() {
   // m4: 1001 confirmed (plan stage)
   // m5: plan_wait, allReady → awaits head-doctor confirmation
   reviewCards = [
-    { id: 'm1', name: 'Пацієнт А', stage: 'plan_wait', planReview: { responsibles: [{ id: '1001', name: 'Андрій', ready: false }], allReady: false } },
+    { id: 'm1', name: 'Пацієнт А', stage: 'plan_wait', ccUrl: 'https://cliniccards.com/cabinet#patients/stages/m1', planReview: { responsibles: [{ id: '1001', name: 'Андрій', ready: false }], allReady: false } },
     { id: 'm2', name: 'Пацієнт Б', stage: 'plan_wait', planReview: { responsibles: [{ id: '1001', name: 'Андрій', ready: true }, { id: '1002', name: 'Катерина', ready: false }], allReady: false } },
     { id: 'm3', name: 'Пацієнт В', stage: 'plan_wait', planReview: { responsibles: [{ id: '1002', name: 'Катерина', ready: false }], allReady: false } },
     { id: 'm4', name: 'Пацієнт Г', stage: 'plan', planReview: { responsibles: [{ id: '1001', name: 'Андрій', ready: true }], allReady: true } },
     { id: 'm5', name: 'Пацієнт Д', stage: 'plan_wait', planReview: { responsibles: [{ id: '1002', name: 'Катерина', ready: true }], allReady: true } },
   ]
 
-  console.log('13) /my splits into to-write (buttons) / awaiting / confirmed')
+  console.log('13) /my lists to-write (buttons) + awaiting, and hides confirmed')
   sent.length = 0
   await bot.handleUpdate(msg('1001', '/my'))
   const myMsg = lastTo('1001')
@@ -212,7 +213,12 @@ async function run() {
   ok(/написати/.test(myMsg?.text || '') && /підтвердж/i.test(myMsg?.text || ''), '/my shows the category summary')
   ok(rows.length === 1 && rows[0][0].callback_data === 'rdy:m1', '/my gives a button only for the to-write plan (m1)')
   ok(/чекають підтвердження[\s\S]*Пацієнт Б/.test(myMsg?.text || ''), '/my lists m2 as written & awaiting confirmation')
-  ok(/Підтверджені[\s\S]*Пацієнт Г/.test(myMsg?.text || ''), '/my lists m4 as confirmed')
+  ok(!/Підтверджені/.test(myMsg?.text || '') && !/Пацієнт Г/.test(myMsg?.text || ''),
+     '/my no longer lists confirmed plans (m4) — finished work is not clutter')
+  ok(rows[0].length === 2 && rows[0][1].url === 'https://cliniccards.com/cabinet#patients/stages/m1',
+     'the to-write row carries a 🔗 Clinic Cards link where ⏸ used to be')
+  ok(!rows.flat().some((b) => String(b.callback_data || '').startsWith('pst:')),
+     'no postpone button survives anywhere in /my')
 
   console.log('14) /all: per-doctor load + «Підтвердити» buttons for awaiting plans')
   sent.length = 0
@@ -234,6 +240,20 @@ async function run() {
   const texts = sent.map((s) => s.text).join(' | ')
   ok(/не зараховує/.test(texts), 'plain "готово" is explained as not counted')
   ok(sent.some((s) => (s.opts?.reply_markup?.inline_keyboard || []).some((row) => row[0]?.callback_data === 'rdy:m1')), 'and the tappable /my list is shown')
+
+  console.log('16) Persistent «Мої плани» button + roomier patient names')
+  sent.length = 0
+  await bot.handleUpdate(cb('1001', 'role:doctor', { first_name: 'Андрій', last_name: 'Федірко' }))
+  ok(lastTo('1001')?.opts?.reply_markup?.keyboard?.[0]?.[0]?.text === '📋 Мої плани',
+     'a лікар gets an always-visible «Мої плани» button on registration')
+  const longName = 'Виолетта Миколаївна Семенко-Кравченко'
+  reviewCards = [{ id: 'm9', name: longName, stage: 'plan_wait', planReview: { responsibles: [{ id: '1001', name: 'Андрій', ready: false }], allReady: false } }]
+  sent.length = 0
+  await bot.handleUpdate(msg('1001', '📋 Мої плани'))
+  const longRows = lastTo('1001')?.opts?.reply_markup?.inline_keyboard || []
+  ok(longRows.length === 1 && longRows[0][0].callback_data === 'rdy:m9', 'the button works exactly like /my')
+  ok(longRows[0][0].text.includes('Семенко-Кравченко'), 'a 37-character name survives intact (22 chars used to cut it)')
+  ok(longRows[0].length === 1, 'with no ccUrl the row is just the ✅ button, no empty link')
 
   console.log(`\nAll ${passed} assertions passed ✅`)
 }

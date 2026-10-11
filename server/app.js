@@ -288,6 +288,7 @@ app.post('/api/patients/:id/plan/responsibles', requireMove, wrap(async (req, re
     if (bot) await bot.notifyPlanAssigned(id, patientName || id, review.responsibles, {
       deadlineAt: p?.planReview?.planDeadlineAt || null,
       visit: p?.visit || '',
+      ccUrl: p?.ccUrl || '',
     })
   }
   res.json({ result: 'success', data: filterBoard(board, req.user) })
