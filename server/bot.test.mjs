@@ -255,6 +255,47 @@ async function run() {
   ok(longRows[0][0].text.includes('Семенко-Кравченко'), 'a 37-character name survives intact (22 chars used to cut it)')
   ok(longRows[0].length === 1, 'with no ccUrl the row is just the ✅ button, no empty link')
 
+  console.log('17) A pending comment survives reads, and is never lost silently')
+  seedReview('m9', [{ id: '1001', name: 'Андрій Федірко' }])
+  pending.delete('1001')
+
+  // ✅ then /my then the comment → still recorded (this is the bug that lost a
+  // real sign-off; the persistent «Мої плани» button made it easier to hit).
+  await bot.handleUpdate(cb('1001', 'rdy:m9'))
+  await bot.handleUpdate(msg('1001', '/my'))
+  ok(/не дописали коментар/.test(lastTo('1001')?.text || ''), '/my names the plan whose comment is unfinished')
+  await bot.handleUpdate(msg('1001', 'Три етапи, починаємо з 36'))
+  ok(reviews.get('m9').signoffs['1001']?.comment === 'Три етапи, починаємо з 36',
+     'the comment is recorded even though /my ran in between')
+
+  // /help must not destroy it either.
+  pending.delete('1001'); reviews.get('m9').signoffs = {}
+  await bot.handleUpdate(cb('1001', 'rdy:m9'))
+  await bot.handleUpdate(msg('1001', '/help'))
+  await bot.handleUpdate(msg('1001', 'Коментар після /help'))
+  ok(reviews.get('m9').signoffs['1001']?.comment === 'Коментар після /help', '/help does not discard it either')
+
+  // Tapping ✅ on a second patient warns instead of silently dropping the first.
+  seedReview('m8', [{ id: '1001', name: 'Андрій Федірко' }])
+  pending.delete('1001'); reviews.get('m9').signoffs = {}
+  await bot.handleUpdate(cb('1001', 'rdy:m9'))
+  await bot.handleUpdate(cb('1001', 'rdy:m8'))
+  ok(/не зарахований/.test(lastTo('1001')?.text || ''), 'a second ✅ says the first comment was not recorded')
+
+  // /skip is an explicit way out.
+  await bot.handleUpdate(msg('1001', '/skip'))
+  ok(!pending.has('1001'), '/skip clears the pending comment')
+  await bot.handleUpdate(msg('1001', 'випадкова фраза'))
+  ok(!reviews.get('m8').signoffs['1001'], 'after /skip a stray message confirms nothing')
+
+  // An abandoned pending expires instead of swallowing an unrelated message.
+  pending.set('1001', { mode: 'signoff', patientId: 'm9', patientName: 'Пацієнт', at: Date.now() - 13 * 3600000 })
+  reviews.get('m9').signoffs = {}
+  sent.length = 0
+  await bot.handleUpdate(msg('1001', 'добрий день'))
+  ok(!reviews.get('m9').signoffs['1001'], 'a 13h-old pending does not record a stray message as the comment')
+  ok(/понад 12 год/.test(sent.map((x) => x.text).join(' | ')), 'and the лікар is told why it was not counted')
+
   console.log(`\nAll ${passed} assertions passed ✅`)
 }
 
